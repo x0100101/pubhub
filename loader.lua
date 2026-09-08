@@ -41,6 +41,79 @@ local function safejson(body)
     return ok and t or nil
 end
 
+-- ─── PERSIST KEY (writefile/readfile — есть у всех executor'ов) ───────────
+local KEY_FILE = "pubhub_key.txt"
+local function saveKey(k)
+    pcall(function()
+        if writefile then writefile(KEY_FILE, k) end
+    end)
+end
+local function loadKey()
+    local ok, k = pcall(function()
+        if readfile and isfile and isfile(KEY_FILE) then return readfile(KEY_FILE) end
+        return nil
+    end)
+    if ok and k and #k > 5 then return k end
+    return nil
+end
+
+-- ─── NOTIFICATIONS (справа снизу, fade in/out) ────────────────────────────
+local NotifGui
+local function getNotifGui()
+    if NotifGui and NotifGui.Parent then return NotifGui end
+    NotifGui = Instance.new("ScreenGui")
+    NotifGui.Name = "PubHub_Notif_" .. HttpService:GenerateGUID(false):sub(1, 8)
+    NotifGui.ResetOnSpawn = false
+    NotifGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    NotifGui.DisplayOrder = 1000
+    NotifGui.Parent = gethui()
+    return NotifGui
+end
+
+local function Notify(text, ok)
+    task.spawn(function()
+        local gui = getNotifGui()
+        -- Сдвигаем старые вверх
+        for _, c in ipairs(gui:GetChildren()) do
+            if c:IsA("Frame") then
+                local curY = c.Position.Y.Offset
+                TweenService:Create(c, TweenInfo.new(0.3), {Position = UDim2.new(1, -320, 1, curY - 70)}):Play()
+            end
+        end
+        local Frame = Instance.new("Frame")
+        Frame.Size = UDim2.fromOffset(300, 60)
+        Frame.Position = UDim2.new(1, 320, 1, -80)  -- за экраном справа
+        Frame.BackgroundColor3 = Color3.fromRGB(18, 20, 34)
+        Frame.BorderSizePixel = 0
+        Frame.Parent = gui
+        local FC = Instance.new("UICorner") FC.CornerRadius = UDim.new(0, 12) FC.Parent = Frame
+        local FS = Instance.new("UIStroke")
+        FS.Color = ok == false and Color3.fromRGB(248, 113, 113) or Color3.fromRGB(139, 92, 246)
+        FS.Thickness = 2
+        FS.Parent = Frame
+        local Label = Instance.new("TextLabel")
+        Label.Size = UDim2.new(1, -20, 1, 0)
+        Label.Position = UDim2.fromOffset(10, 0)
+        Label.BackgroundTransparency = 1
+        Label.Font = Enum.Font.GothamBold
+        Label.TextSize = 13
+        Label.Text = text
+        Label.TextColor3 = Color3.fromRGB(226, 232, 240)
+        Label.TextWrapped = true
+        Label.TextXAlignment = Enum.TextXAlignment.Left
+        Label.Parent = Frame
+        -- Slide in
+        TweenService:Create(Frame, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Position = UDim2.new(1, -320, 1, -80)
+        }):Play()
+        -- Fade out
+        task.wait(3)
+        TweenService:Create(Frame, TweenInfo.new(0.3), {Position = UDim2.new(1, 320, 1, -80)}):Play()
+        task.wait(0.35)
+        Frame:Destroy()
+    end)
+end
+
 -- ─── CLEANUP PREV ──────────────────────────────────────────────────────────
 pcall(function()
     local g = getgenv and getgenv() or _G
@@ -237,7 +310,43 @@ task.spawn(function()
 end)
 
 task.wait(1.8)
-print("[PubHub] Splash done, opening key window...")
+print("[PubHub] Splash done, checking saved key...")
+
+-- ─── AUTO-LOGIN: проверить сохранённый ключ ────────────────────────────────
+local SKIP_GUI = false
+do
+    local saved = loadKey()
+    if saved then
+        -- Пробуем валидировать silent — если успех, сразу грузим main
+        local url = string.format("%s/check?key=%s&hw=%s", PUBHUB_API,
+            HttpService:UrlEncode(saved), HttpService:UrlEncode(HWID))
+        local body = httpget(url)
+        local data = safejson(body)
+        if data and data.valid then
+            print("[PubHub] Saved key valid — auto-login, " .. math.floor((data.remaining or 0)/3600) .. "h left")
+            VALIDATED = true
+            KEY_DATA = data
+            SKIP_GUI = true
+            pcall(function() SplashGui:Destroy() end)
+            -- Fetch & run main напрямую (без KeyGui)
+            local payload = httpget(MAIN_PAYLOAD_URL)
+            if payload and #payload > 100 then
+                local fn, err = loadstring(payload)
+                if fn then
+                    Notify("Welcome back! " .. math.floor((data.remaining or 0)/3600) .. "h left", true)
+                    pcall(fn)
+                else
+                    warn("[PubHub] Payload load error: " .. tostring(err))
+                end
+            else
+                warn("[PubHub] Failed to fetch main payload")
+            end
+            return  -- выходим из loader'а
+        else
+            print("[PubHub] Saved key expired/invalid — showing key window")
+        end
+    end
+end
 
 -- ─── KEY GUI ───────────────────────────────────────────────────────────────
 local KeyGui = Instance.new("ScreenGui")
@@ -452,23 +561,30 @@ end)
 local VALIDATED = false
 local KEY_DATA = nil
 
-local function validateKey(key)
-    setStatus("Checking key...", true)
+local function validateKey(key, silent)
+    if not silent then setStatus("Checking key...", true) end
     local url = string.format("%s/check?key=%s&hw=%s", PUBHUB_API,
         HttpService:UrlEncode(key), HttpService:UrlEncode(HWID))
     local body = httpget(url)
     local data = safejson(body)
     if not data then
-        setStatus("Connection failed", false)
+        if not silent then setStatus("Connection failed", false) end
         return false
     end
     if data.valid then
         VALIDATED = true
         KEY_DATA = data
-        setStatus(string.format("Key valid — %d hours left", math.floor((data.remaining or 0) / 3600)), true)
+        saveKey(key)  -- persist для следующего запуска
+        if not silent then
+            setStatus("Success!", true)
+            Notify("Success! Key valid — " .. math.floor((data.remaining or 0) / 3600) .. "h left", true)
+        end
         return true
     else
-        setStatus(data.error or "Invalid key", false)
+        if not silent then
+            setStatus("Вы ввели неверный ключ", false)
+            Notify("Вы ввели неверный ключ", false)
+        end
         return false
     end
 end
@@ -490,14 +606,17 @@ local function getLootlabsLink(checkpoints)
         end)
         if copied then
             setStatus(string.format("Link copied! %d checkpoints = %d hours", checkpoints, data.hours or 0), true)
+            Notify("Ссылка скопирована", true)
         else
             setStatus("Link: " .. data.url, true)
+            Notify("Ссылка в поле ввода — скопируйте вручную", false)
         end
         -- fallback: покажем url в input для ручного копирования
         pcall(function() KeyInput.Text = data.url end)
         return data.url
     else
         setStatus(data.error or "Failed to generate link", false)
+        Notify(data.error or "Failed to generate link", false)
         return nil
     end
 end
