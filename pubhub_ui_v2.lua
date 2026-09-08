@@ -62,19 +62,21 @@ local function tween(obj, info, props)
     return TweenService:Create(obj, info, props):Play()
 end
 
-local function gradient(parent, colorStops, rotation)
-    -- colorStops: { [0]=Color3, [0.5]=Color3, [1]=Color3 } or array of ColorSequenceKeypoint
-    local keypoints
-    if #colorStops > 0 and typeof(colorStops[1]) == "ColorSequenceKeypoint" then
-        keypoints = colorStops
-    else
-        keypoints = {}
-        local positions = {}
-        for pos in pairs(colorStops) do table.insert(positions, pos) end
-        table.sort(positions)
-        for _, pos in ipairs(positions) do
-            table.insert(keypoints, ColorSequenceKeypoint.new(pos, colorStops[pos]))
-        end
+local function gradient(parent, colorStops, c2, rotation)
+    -- Формы вызова:
+    --   gradient(parent, { [0]=Color3, [1]=Color3 }, rotation)  — stops table
+    --   gradient(parent, Color3, Color3, rotation)              — два цвета
+    if typeof(colorStops) == "Color3" then
+        colorStops = { [0] = colorStops, [1] = c2 or colorStops }
+        rotation = c2 == nil and 45 or (typeof(c2) == "number" and c2 or rotation)
+        if typeof(c2) == "number" then rotation = c2 end
+    end
+    local keypoints = {}
+    local positions = {}
+    for pos in pairs(colorStops) do table.insert(positions, pos) end
+    table.sort(positions)
+    for _, pos in ipairs(positions) do
+        table.insert(keypoints, ColorSequenceKeypoint.new(pos, colorStops[pos]))
     end
     return new("UIGradient", {
         Parent = parent,
