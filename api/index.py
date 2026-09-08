@@ -254,7 +254,8 @@ def payload():
         return jsonify({"error": "unauthorized"}), 403
     try:
         import os
-        path = os.path.join(os.path.dirname(__file__), "..", "public", "main.lua")
+        # main.lua лежит рядом с api/index.py (Vercel static files на верхнем уровне)
+        path = os.path.join(os.path.dirname(__file__), "..", "main.lua")
         with open(path, "rb") as f:
             payload_bytes = f.read()
         # XOR encrypt с session key (HMAC от hwid+key+timestamp)
