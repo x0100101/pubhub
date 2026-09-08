@@ -825,12 +825,47 @@ function PubHubUI:CreateWindow(opts)
                 corner(Cur, Theme.CornerRadiusSmall)
                 local cs = stroke(Cur, 1, 0)
 
-                local Arrow = label(Cur, {
-                    Text = "▾", Size = 11, Font = Theme.FontBold,
-                    Size2 = UDim2.fromOffset(16, 24),
+                -- Chevron из двух Frame (не глиф — работает везде)
+                local ArrowFrame = new("Frame", {
+                    Parent = Cur,
+                    Size = UDim2.fromOffset(16, 24),
                     Position = UDim2.new(1, -20, 0, 0),
-                    Align = Enum.TextXAlignment.Center,
-                    ColorKey = "MutedColor", ZIndex = ZLayers.Controls + 1,
+                    BackgroundTransparency = 1,
+                    ZIndex = ZLayers.Controls + 1,
+                })
+                local function mkChevron(rot, xOff)
+                    local f = new("Frame", {
+                        Parent = ArrowFrame,
+                        Size = UDim2.fromOffset(6, 2),
+                        Position = UDim2.new(0.5, xOff, 0.5, 0),
+                        AnchorPoint = Vector2.new(0.5, 0.5),
+                        BorderSizePixel = 0,
+                        ZIndex = ZLayers.Controls + 1,
+                    })
+                    f.Rotation = rot
+                    corner(f, UDim.new(1, 0))
+                    regColor(f, "BackgroundColor3", "MutedColor")
+                    return f
+                end
+                local chevL = mkChevron(45, -2)
+                local chevR = mkChevron(-45, 2)
+                -- Анимация через Rotation (мой Arrow-объект)
+                local Arrow = {
+                    _l = chevL, _r = chevR,
+                }
+                local arrowRot = 0
+                setmetatable(Arrow, {
+                    __index = function(_, k)
+                        if k == "Rotation" then return arrowRot end
+                    end,
+                    __newindex = function(_, k, v)
+                        if k == "Rotation" then
+                            arrowRot = v
+                            local open2 = v >= 90
+                            chevL.Rotation = open2 and -45 or 45
+                            chevR.Rotation = open2 and 45 or -45
+                        end
+                    end,
                 })
 
                 -- ═══ DROPDOWN LAYER (поверх всего) ═══
