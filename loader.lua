@@ -151,7 +151,7 @@ Bar.Parent = BarBg
 
 local BarCorner = Instance.new("UICorner")
 BarCorner.CornerRadius = UDim.new(1, 0)
-Bar.Parent = Bar
+BarCorner.Parent = Bar
 
 local BarGrad = Instance.new("UIGradient")
 BarGrad.Color = ColorSequence.new({
