@@ -179,6 +179,10 @@ def payload():
 
 @app.route("/getlink")
 def getlink():
+    """
+    Создаёт Lootlabs линк. Юзер проходит чекпоинты → Lootlabs дёргает наш /postback
+    с click_id=TOKEN → мы выдаём ключ.
+    """
     hwid = (request.args.get("hw") or "").strip()[:64]
     try: ckpts = int(request.args.get("c", "0"))
     except ValueError: return jsonify({"error": "bad checkpoints"}), 400
@@ -188,43 +192,99 @@ def getlink():
     if not rate_key_ok(hwid): return jsonify({"error": "rate limit"}), 429
 
     token = secrets.token_urlsafe(24)
+    # Lootlabs редиректит юзера на эту страницу после всех чекпоинтов (там он увидит ключ)
     redeem_url = request.url_root.rstrip("/") + f"/redeem?t={token}"
-    redis_set(f"tok:{token}", json.dumps({"hwid": hwid, "ckpts": ckpts, "used": 0}), ex=TOKEN_TTL)
+    # Сохраняем token как pending — ждём postback от Lootlabs
+    redis_set(f"tok:{token}", json.dumps({
+        "hwid": hwid, "ckpts": ckpts,
+        "completed_tasks": 0, "used": 0,
+    }), ex=TOKEN_TTL)
 
     link, err = create_lootlabs_link(ckpts, redeem_url)
     if err:
         return jsonify({"error": err}), 502
-    return jsonify({"url": link, "checkpoints": ckpts, "hours": DURATIONS[ckpts]})
+    # Lootlabs шлёт postback с click_id=<token> — подклеиваем его в URL через &puid=
+    postback_link = link + ("&" if "?" in link else "?") + f"puid={token}"
+    return jsonify({"url": postback_link, "checkpoints": ckpts, "hours": DURATIONS[ckpts], "token": token})
+
+
+@app.route("/postback")
+def postback():
+    """
+    Lootlabs дёргает сюда после КАЖДОГО пройденного чекпоинта.
+    Query: click_id=<puid из loot_url>, ip=<user_ip>, unique_id=<task_id>
+    Настраивается в Lootlabs panel → Advanced → Postback URL = https://.../postback
+    """
+    click_id = (request.args.get("click_id") or "").strip()[:128]
+    user_ip = (request.args.get("ip") or "").strip()[:45]
+    unique_id = (request.args.get("unique_id") or "").strip()[:64]
+    if not click_id or not unique_id:
+        return "MISSING", 400
+
+    raw = redis_get(f"tok:{click_id}")
+    if not raw: return "UNKNOWN_TOKEN", 404
+    try: tdata = json.loads(raw)
+    except Exception: return "CORRUPT", 500
+    if tdata.get("used"): return "USED", 200  # уже выдали ключ, но 200 чтобы Lootlabs не ретраил
+
+    # Защита от дублей одного task
+    if redis_sismember(f"pb:{click_id}", unique_id):
+        return "DUPLICATE", 200
+    redis_sadd(f"pb:{click_id}", unique_id)
+    redis_expire(f"pb:{click_id}", TOKEN_TTL)
+
+    tdata["completed_tasks"] = tdata.get("completed_tasks", 0) + 1
+    tdata["user_ip"] = user_ip
+
+    # Если все чекпоинты пройдены — выдаём ключ
+    if tdata["completed_tasks"] >= tdata["ckpts"]:
+        tdata["used"] = 1
+        hwid, ckpts = tdata["hwid"], tdata["ckpts"]
+        hours = DURATIONS[ckpts]
+        issued = now()
+        expires = issued + hours * 3600
+        key = format_key(hwid, ckpts, issued, hours)
+        tdata["key"] = key
+        tdata["expires_at"] = expires
+        # Сохраняем ключ в redis
+        redis_set(f"key:{key}", json.dumps({
+            "hwid": hwid, "ckpts": ckpts, "hours": hours,
+            "created_at": issued, "expires_at": expires,
+            "ip": user_ip, "ua": "lootlabs-postback",
+        }), ex=hours * 3600 + 3600)
+        redis_incr("stats:total")
+        redis_incr(f"stats:day:{datetime.utcnow().strftime('%Y-%m-%d')}")
+        redis_set(f"tok:{click_id}", json.dumps(tdata), ex=3600)  # редирект заберёт ключ в течение часа
+        return "OK_KEY_ISSUED", 200
+
+    redis_set(f"tok:{click_id}", json.dumps(tdata), ex=TOKEN_TTL)
+    return f"OK_PROGRESS_{tdata['completed_tasks']}/{tdata['ckpts']}", 200
 
 @app.route("/redeem")
 def redeem():
+    """
+    Юзер попадает сюда после прохождения всех чекпоинтов (Lootlabs редирект).
+    Ключ уже создан postback'ом — просто показываем его.
+    """
     token = (request.args.get("t") or "").strip()[:128]
     if not token: return "<h1>Bad request</h1>", 400
     raw = redis_get(f"tok:{token}")
     if not raw: return "<h1>Сессия не найдена</h1><p>Запросите новую ссылку.</p>", 404
     try: tdata = json.loads(raw)
     except Exception: return "<h1>Bad session</h1>", 500
-    if tdata.get("used"): return "<h1>Токен уже использован</h1>", 403
 
-    # Atomic check-and-set: пытаемся удалить токен. GETDEL — атомарная операция.
-    # Если другой запрос уже удалил его — вернёт None.
-    deleted = redis_call("GETDEL", f"tok:{token}")
-    if not deleted:
-        return "<h1>Токен уже использован</h1>", 403
+    # Проверяем что postback уже выдал ключ
+    if not tdata.get("used") or not tdata.get("key"):
+        completed = tdata.get("completed_tasks", 0)
+        ckpts = tdata.get("ckpts", "?")
+        return f"""<!doctype html><html><head><meta charset=utf-8><meta http-equiv=refresh content=5><title>PubHub — Waiting</title>
+<style>body{{background:#0a0c14;color:#e8ecf8;font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}}
+.card{{background:#12141f;padding:2rem;border-radius:16px;border:1px solid #8b5cf6;text-align:center}}</style></head>
+<body><div class=card><h1 style="color:#8b5cf6">PubHub</h1><p>Прогресс: {completed}/{ckpts} чекпоинтов</p><p>Страница обновится автоматически...</p></div></body></html>""", 202
 
-    hwid, ckpts = tdata["hwid"], tdata["ckpts"]
-    hours = DURATIONS[ckpts]
-    issued = now()
-    expires = issued + hours * 3600
-    key = format_key(hwid, ckpts, issued, hours)
-    key_payload = json.dumps({
-        "hwid": hwid, "ckpts": ckpts, "hours": hours,
-        "created_at": issued, "expires_at": expires,
-        "ip": get_ip(), "ua": request.headers.get("User-Agent", "")[:200],
-    })
-    redis_set(f"key:{key}", key_payload, ex=hours * 3600 + 3600)
-    redis_incr("stats:total")
-    redis_incr(f"stats:day:{datetime.utcnow().strftime('%Y-%m-%d')}")
+    key = tdata["key"]
+    expires = tdata["expires_at"]
+    hours = DURATIONS.get(tdata["ckpts"], 0)
 
     html = f"""<!doctype html><html><head><meta charset=utf-8><title>PubHub — Key</title>
 <meta name=viewport content="width=device-width,initial-scale=1">
