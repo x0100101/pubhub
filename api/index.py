@@ -29,7 +29,7 @@ LOOTLABS_CREATE_URL = "https://creators.lootlabs.gg/api/public/content_locker"
 WORKINK_API_KEY = os.environ.get("WORKINK_API_KEY", "")
 WORKINK_CREATE_URL = "https://dashboard.work.ink/_api/v1/link"
 RATE_LIMIT_PER_MIN = 10
-KEY_RATE_LIMIT_PER_DAY = 6
+KEY_RATE_LIMIT_PER_DAY = 20
 TOKEN_TTL = 3600
 API_TIMEOUT = 10
 
