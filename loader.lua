@@ -366,7 +366,7 @@ Blur.BorderSizePixel = 0
 Blur.Parent = KeyGui
 
 local KeyFrame = Instance.new("Frame")
-KeyFrame.Size = UDim2.fromOffset(420, 380)
+KeyFrame.Size = UDim2.fromOffset(420, 560)
 KeyFrame.Position = UDim2.fromScale(0.5, 0.5)
 KeyFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 KeyFrame.BackgroundColor3 = Color3.fromRGB(13, 15, 26)
@@ -522,7 +522,7 @@ end
 
 local StatusLbl = Instance.new("TextLabel")
 StatusLbl.Size = UDim2.new(1, -40, 0, 18)
-StatusLbl.Position = UDim2.fromOffset(20, 320)
+StatusLbl.Position = UDim2.fromOffset(20, 530)
 StatusLbl.BackgroundTransparency = 1
 StatusLbl.Font = Enum.Font.Gotham
 StatusLbl.TextSize = 12
@@ -591,9 +591,11 @@ local function validateKey(key, silent)
     end
 end
 
-local function getLootlabsLink(checkpoints)
-    setStatus(string.format("Generating %d-checkpoint link...", checkpoints), true)
-    local url = string.format("%s/getlink?hw=%s&c=%d", PUBHUB_API,
+local function getLootlabsLink(checkpoints, provider)
+    provider = provider or "lootlabs"
+    setStatus(string.format("Generating %s link (%d checkpoints)...", provider, checkpoints), true)
+    local endpoint = provider == "workink" and "/getlink_workink" or "/getlink"
+    local url = string.format("%s%s?hw=%s&c=%d", PUBHUB_API, endpoint,
         HttpService:UrlEncode(HWID), checkpoints)
     local body = httpget(url)
     local data = safejson(body)
@@ -678,16 +680,40 @@ MakeButton("Validate Key", 150, true, function()
     end
 end)
 
-MakeButton("Get Key — 12 hours (2 checkpoints)", 200, false, function()
-    getLootlabsLink(2)
+MakeButton("Get Key — 12 hours · Lootlabs", 200, false, function()
+    getLootlabsLink(2, "lootlabs")
 end)
 
-MakeButton("Get Key — 24 hours (3 checkpoints)", 250, false, function()
-    getLootlabsLink(3)
+MakeButton("Get Key — 24 hours · Lootlabs", 250, false, function()
+    getLootlabsLink(3, "lootlabs")
 end)
 
-MakeButton("Get Key — 48 hours (5 checkpoints)", 300, false, function()
-    getLootlabsLink(5)
+MakeButton("Get Key — 48 hours · Lootlabs", 300, false, function()
+    getLootlabsLink(5, "lootlabs")
+end)
+
+-- Divider label
+local DividerLbl = Instance.new("TextLabel")
+DividerLbl.Size = UDim2.new(1, -40, 0, 16)
+DividerLbl.Position = UDim2.fromOffset(20, 355)
+DividerLbl.BackgroundTransparency = 1
+DividerLbl.Font = Enum.Font.Gotham
+DividerLbl.TextSize = 11
+DividerLbl.Text = "— or via Work.ink —"
+DividerLbl.TextColor3 = Color3.fromRGB(107, 114, 128)
+DividerLbl.TextXAlignment = Enum.TextXAlignment.Center
+DividerLbl.Parent = KeyFrame
+
+MakeButton("Get Key — 12 hours · Work.ink", 380, false, function()
+    getLootlabsLink(2, "workink")
+end)
+
+MakeButton("Get Key — 24 hours · Work.ink", 430, false, function()
+    getLootlabsLink(3, "workink")
+end)
+
+MakeButton("Get Key — 48 hours · Work.ink", 480, false, function()
+    getLootlabsLink(5, "workink")
 end)
 
 -- Entrance animation
@@ -695,7 +721,7 @@ KeyFrame.Size = UDim2.fromOffset(0, 0)
 KeyFrame.BackgroundTransparency = 1
 TweenService:Create(Blur, TweenInfo.new(0.5), {BackgroundTransparency = 0.6}):Play()
 TweenService:Create(KeyFrame, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-    Size = UDim2.fromOffset(420, 380),
+    Size = UDim2.fromOffset(420, 560),
     BackgroundTransparency = 0
 }):Play()
 
