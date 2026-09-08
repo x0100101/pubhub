@@ -1121,10 +1121,13 @@ UI:BuildGuiTab(Window)
 -- Watermark
 -- Key data из loader (getgenv.__PUBHUB_KEY) или fallback
 local kd = (getgenv and getgenv() or _G).__PUBHUB_KEY
+print("[PubHub] __PUBHUB_KEY:", kd and ("expires=" .. tostring(kd.ExpiresAt)) or "nil")
 if kd then
     UI:SetKeyData(kd)
+    print("[PubHub] SetKeyData called, _keyData:", UI._keyData and "set" or "nil")
 else
     UI:SetKeyData({ ExpiresAt = os.time() + 12*3600, Hours = 12 })
+    print("[PubHub] SetKeyData fallback")
 end
 
 notify("PubHub v3.0 loaded")
