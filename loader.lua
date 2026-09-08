@@ -57,6 +57,56 @@ local function loadKey()
     return nil
 end
 
+-- ─── AUTO-EXEC SETUP (обход античита — ранний inject до полной загрузки) ──
+-- При первом запуске пишем loader в autoexec-папку executor'а и реджоиним.
+local LOADER_URL = "https://raw.githubusercontent.com/x0100101/pubhub/main/loader.lua"
+local LOADER_SRC_CACHE = nil
+local function fetchLoaderSrc()
+    if LOADER_SRC_CACHE then return LOADER_SRC_CACHE end
+    LOADER_SRC_CACHE = httpget(LOADER_URL)
+    return LOADER_SRC_CACHE
+end
+
+local AUTOEXEC_MARKER = "pubhub_autoexec_v1.txt"
+local function alreadyAutoexec()
+    local ok, r = pcall(function()
+        if readfile and isfile and isfile(AUTOEXEC_MARKER) then return readfile(AUTOEXEC_MARKER) end
+    end)
+    return ok and r == "1"
+end
+
+local function setupAutoexec()
+    if alreadyAutoexec() then return false end
+    if not writefile then return false end
+    local src = fetchLoaderSrc()
+    if not src or #src < 100 then return false end
+    local loader_line = 'loadstring(game:HttpGet("' .. LOADER_URL .. '"))()'
+    -- Пишем в стандартные autoexec-папки разных executor'ов
+    local paths = {
+        "autoexec/pubhub.lua",
+        "autoexec\\pubhub.lua",
+        "auto-execute/pubhub.lua",
+        "auto-execute\\pubhub.lua",
+        "workspace/autoexec/pubhub.lua",
+        "workspace\\autoexec\\pubhub.lua",
+    }
+    local wrote = false
+    for _, p in ipairs(paths) do
+        local ok = pcall(function() writefile(p, loader_line) end)
+        if ok then wrote = true end
+    end
+    -- Маркер что установили
+    pcall(function() writefile(AUTOEXEC_MARKER, "1") end)
+    return wrote
+end
+
+local function rejoinPlace()
+    pcall(function()
+        local TeleportService = game:GetService("TeleportService")
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, lp)
+    end)
+end
+
 -- ─── NOTIFICATIONS (справа снизу, fade in/out) ────────────────────────────
 local NotifGui
 local function getNotifGui()
@@ -328,6 +378,17 @@ do
             KEY_DATA = data
             SKIP_GUI = true
             pcall(function() SplashGui:Destroy() end)
+            -- Auto-exec setup: один раз записываем в autoexec и реджоиним для раннего inject
+            if not alreadyAutoexec() then
+                local wrote = setupAutoexec()
+                if wrote then
+                    print("[PubHub] Auto-exec installed — rejoining for early inject")
+                    Notify("Auto-exec установлен — перезаходим", true)
+                    task.wait(1.5)
+                    rejoinPlace()
+                    return
+                end
+            end
             -- Fetch & run main напрямую (без KeyGui)
             local payload = httpget(MAIN_PAYLOAD_URL)
             if payload and #payload > 100 then
@@ -676,6 +737,16 @@ MakeButton("Validate Key", 150, true, function()
     if validateKey(k) then
         task.wait(0.5)
         Notify("Загрузка PubHub...", true)
+        -- Auto-exec при первой ручной валидации: записать + реджоин для раннего inject
+        if not alreadyAutoexec() then
+            local wrote = setupAutoexec()
+            if wrote then
+                Notify("Auto-exec установлен — перезаходим", true)
+                task.wait(1.5)
+                rejoinPlace()
+                return
+            end
+        end
         proceedToMain()
     end
 end)
