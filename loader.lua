@@ -377,6 +377,10 @@ do
             VALIDATED = true
             KEY_DATA = data
             SKIP_GUI = true
+            -- Передаём key data в watermark через getgenv
+            pcall(function()
+                (getgenv and getgenv() or _G).__PUBHUB_KEY = { ExpiresAt = data.expires_at, Hours = data.hours }
+            end)
             pcall(function() SplashGui:Destroy() end)
             -- Auto-exec setup: один раз записываем в autoexec и реджоиним для раннего inject
             if not alreadyAutoexec() then
@@ -638,6 +642,10 @@ local function validateKey(key, silent)
         VALIDATED = true
         KEY_DATA = data
         saveKey(key)  -- persist для следующего запуска
+        -- Передаём key data в watermark
+        pcall(function()
+            (getgenv and getgenv() or _G).__PUBHUB_KEY = { ExpiresAt = data.expires_at, Hours = data.hours }
+        end)
         if not silent then
             setStatus("Success!", true)
             Notify("Success! Key valid — " .. math.floor((data.remaining or 0) / 3600) .. "h left", true)

@@ -1119,6 +1119,12 @@ HelpCard:AddLabel("Have a suggestion or found a bug?\nChoose type, enter message
 UI:BuildGuiTab(Window)
 
 -- Watermark
-UI:SetKeyData({ ExpiresAt = os.time() + 12*3600, Hours = 12 })
+-- Key data из loader (getgenv.__PUBHUB_KEY) или fallback
+local kd = (getgenv and getgenv() or _G).__PUBHUB_KEY
+if kd then
+    UI:SetKeyData(kd)
+else
+    UI:SetKeyData({ ExpiresAt = os.time() + 12*3600, Hours = 12 })
+end
 
 notify("PubHub v3.0 loaded")
