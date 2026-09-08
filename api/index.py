@@ -237,28 +237,36 @@ def index():
 @app.route("/payload")
 def payload():
     """
-    Отдаёт обфусцированный main.lua — только если у юзера есть валидный ключ.
+    Отдаёт XOR-зашифрованный main.lua — только при валидном ключе.
     ?key=PUB-...&hw=<hwid>
-    Альтернатива GitHub raw — если main лежит на этом же Vercel.
+    Формат ответа: {"data": "<hex>", "k": "<session_key_hex>"}
     """
     key = (request.args.get("key") or "").strip().upper()
     hwid = (request.args.get("hw") or "").strip()[:64]
     if not key or not hwid:
-        return "-- unauthorized", 403
+        return jsonify({"error": "unauthorized"}), 403
     raw = redis_get(f"key:{key}")
     if not raw:
-        return "-- unauthorized", 403
+        return jsonify({"error": "unauthorized"}), 403
     try: kd = json.loads(raw)
-    except Exception: return "-- error", 500
+    except Exception: return jsonify({"error": "corrupt"}), 500
     if not hmac.compare_digest(kd["hwid"], hwid) or now() > kd["expires_at"]:
-        return "-- unauthorized", 403
+        return jsonify({"error": "unauthorized"}), 403
     try:
         import os
         path = os.path.join(os.path.dirname(__file__), "..", "public", "main.lua")
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read(), 200, {"Content-Type": "text/plain; charset=utf-8"}
+        with open(path, "rb") as f:
+            payload_bytes = f.read()
+        # XOR encrypt с session key (HMAC от hwid+key+timestamp)
+        session_key = hashlib.sha256(f"{hwid}|{key}|{now()//3600}".encode()).digest()
+        encrypted = bytes(b ^ session_key[i % len(session_key)] for i, b in enumerate(payload_bytes))
+        return jsonify({
+            "data": encrypted.hex(),
+            "k": session_key.hex(),
+            "ts": now(),
+        })
     except Exception as e:
-        return f"-- payload error: {e}", 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/getlink")
 def getlink():
