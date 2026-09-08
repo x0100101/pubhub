@@ -73,6 +73,36 @@ def redis_sismember(k, m):
     try: return redis_call("SISMEMBER", k, m) == 1
     except Exception: return False
 
+def redis_scard(k):
+    try: return int(redis_call("SCARD", k) or 0)
+    except Exception: return 0
+
+def redis_smembers(k):
+    try: return redis_call("SMEMBERS", k) or []
+    except Exception: return []
+
+# ─── STATS TRACKING ───────────────────────────────────────────────────────
+def today() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%d")
+
+def track_event(name: str, hwid: str = None, extra: dict = None):
+    """
+    Трекает событие. name: link_created / key_issued / activation / feedback
+    Все метрики:
+      stats:<name>:total        — счётчик событий
+      stats:<name>:day:<date>   — за день
+      stats:<name>:hwid         — SET уникальных hwid (все время)
+      stats:<name>:hwid:<date>  — SET уникальных hwid за день
+    """
+    try:
+        redis_incr(f"stats:{name}:total")
+        redis_incr(f"stats:{name}:day:{today()}")
+        if hwid:
+            redis_sadd(f"stats:{name}:hwid", hwid)
+            redis_sadd(f"stats:{name}:hwid:{today()}", hwid)
+    except Exception:
+        pass  # stats не критичны
+
 # ─── HELPERS ───────────────────────────────────────────────────────────────
 def now() -> int: return int(time.time())
 
@@ -256,6 +286,7 @@ def getlink():
     link, err = create_lootlabs_link(ckpts, redeem_url)
     if err:
         return jsonify({"error": err}), 502
+    track_event("link_created", hwid, {"provider": "lootlabs", "ckpts": ckpts})
     # Lootlabs шлёт postback с click_id=<token> — подклеиваем его в URL через &puid=
     postback_link = link + ("&" if "?" in link else "?") + f"puid={token}"
     return jsonify({"url": postback_link, "checkpoints": ckpts, "hours": DURATIONS[ckpts], "token": token})
@@ -313,6 +344,7 @@ def postback():
         }), ex=hours * 3600 + 3600)
         redis_incr("stats:total")
         redis_incr(f"stats:day:{datetime.utcnow().strftime('%Y-%m-%d')}")
+        track_event("key_issued", hwid, {"provider": "lootlabs", "hours": hours})
         redis_set(f"tok:{click_id}", json.dumps(tdata), ex=3600)  # редирект заберёт ключ в течение часа
         return "OK_KEY_ISSUED", 200
 
@@ -343,6 +375,7 @@ def getlink_workink():
     link, err = create_workink_link(redeem_url)
     if err:
         return jsonify({"error": err}), 502
+    track_event("link_created", hwid, {"provider": "workink", "ckpts": ckpts})
     return jsonify({"url": link, "checkpoints": ckpts, "hours": DURATIONS[ckpts], "provider": "workink"})
 
 @app.route("/redeem_workink")
@@ -377,6 +410,7 @@ def redeem_workink():
     }), ex=hours * 3600 + 3600)
     redis_incr("stats:total")
     redis_incr(f"stats:day:{datetime.utcnow().strftime('%Y-%m-%d')}")
+    track_event("key_issued", hwid, {"provider": "workink", "hours": hours})
 
     html = f"""<!doctype html><html><head><meta charset=utf-8><title>PubHub — Key</title>
 <meta name=viewport content="width=device-width,initial-scale=1">
@@ -462,6 +496,7 @@ def check():
     if t > kd["expires_at"]:
         return jsonify({"valid": False, "error": "expired", "expired_at": kd["expires_at"]})
 
+    track_event("activation", hwid, {"key": key[:12]})
     return jsonify({
         "valid": True,
         "remaining": kd["expires_at"] - t,
@@ -526,12 +561,102 @@ def require_admin():
 
 @app.route("/admin/stats")
 def admin_stats():
+    """
+    Полная статистика:
+    - keys_issued: total + today + unique_hwid (all-time / today)
+    - activations: total + today + unique_hwid (all-time / today)
+    - links_created: total + today + unique_hwid
+    - active_keys_now: keys с expires_at > now
+    """
     require_admin()
-    day = datetime.utcnow().strftime("%Y-%m-%d")
+    day = today()
+    t = now()
+
+    # Считаем активные ключи — идём по всем key:* и фильтруем expires_at
+    active_now = 0
+    try:
+        all_keys = redis_call("KEYS", "key:*") or []
+        for k in all_keys:
+            raw = redis_get(k)
+            if raw:
+                try:
+                    kd = json.loads(raw)
+                    if kd.get("expires_at", 0) > t:
+                        active_now += 1
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     return jsonify({
-        "total": int(redis_get("stats:total") or 0),
-        "today": int(redis_get(f"stats:day:{day}") or 0),
+        "date": day,
+        "keys_issued": {
+            "total": int(redis_get("stats:key_issued:total") or 0),
+            "today": int(redis_get(f"stats:key_issued:day:{day}") or 0),
+            "unique_hwid_all": redis_scard("stats:key_issued:hwid"),
+            "unique_hwid_today": redis_scard(f"stats:key_issued:hwid:{day}"),
+        },
+        "activations": {
+            "total": int(redis_get("stats:activation:total") or 0),
+            "today": int(redis_get(f"stats:activation:day:{day}") or 0),
+            "unique_hwid_all": redis_scard("stats:activation:hwid"),
+            "unique_hwid_today": redis_scard(f"stats:activation:hwid:{day}"),
+        },
+        "links_created": {
+            "total": int(redis_get("stats:link_created:total") or 0),
+            "today": int(redis_get(f"stats:link_created:day:{day}") or 0),
+            "unique_hwid_all": redis_scard("stats:link_created:hwid"),
+            "unique_hwid_today": redis_scard(f"stats:link_created:hwid:{day}"),
+        },
+        "active_keys_now": active_now,
     })
+
+
+@app.route("/admin/stats/html")
+def admin_stats_html():
+    """Человекочитаемая версия статистики"""
+    require_admin()
+    day = today()
+    s = {
+        "keys_total": int(redis_get("stats:key_issued:total") or 0),
+        "keys_today": int(redis_get(f"stats:key_issued:day:{day}") or 0),
+        "keys_uniq": redis_scard("stats:key_issued:hwid"),
+        "keys_uniq_today": redis_scard(f"stats:key_issued:hwid:{day}"),
+        "act_total": int(redis_get("stats:activation:total") or 0),
+        "act_today": int(redis_get(f"stats:activation:day:{day}") or 0),
+        "act_uniq": redis_scard("stats:activation:hwid"),
+        "act_uniq_today": redis_scard(f"stats:activation:hwid:{day}"),
+        "links_total": int(redis_get("stats:link_created:total") or 0),
+        "links_today": int(redis_get(f"stats:link_created:day:{day}") or 0),
+        "links_uniq": redis_scard("stats:link_created:hwid"),
+        "links_uniq_today": redis_scard(f"stats:link_created:hwid:{day}"),
+    }
+    html = f"""<!doctype html><html><head><meta charset=utf-8><title>PubHub Stats</title>
+<meta http-equiv=refresh content=30>
+<style>
+body{{background:#0a0c14;color:#e8ecf8;font-family:Inter,system-ui,sans-serif;padding:2rem;max-width:900px;margin:0 auto}}
+h1{{background:linear-gradient(90deg,#8b5cf6,#ec4899);-webkit-background-clip:text;background-clip:text;color:transparent}}
+h2{{color:#c4b5fd;margin-top:2rem;font-size:1.1rem}}
+table{{width:100%;border-collapse:collapse;margin-top:.5rem}}
+td,th{{padding:.6rem;text-align:left;border-bottom:1px solid #2a2f4a}}
+th{{color:#8b5cf6;font-weight:600}}
+td{{color:#e8ecf8}}
+.num{{font-family:monospace;color:#ec4899;font-weight:600}}
+.badge{{display:inline-block;background:#1a1d2e;padding:.2rem .6rem;border-radius:6px;font-size:.85rem;color:#9aa3c0}}
+</style></head><body>
+<h1>PubHub Stats</h1>
+<span class=badge>{day}</span>
+<h2>Ключи выданы</h2>
+<table><tr><th></th><th>Всего</th><th>Сегодня</th><th>Уникальных всего</th><th>Уникальных сегодня</th></tr>
+<tr><td>Keys issued</td><td class=num>{s['keys_total']}</td><td class=num>{s['keys_today']}</td><td class=num>{s['keys_uniq']}</td><td class=num>{s['keys_uniq_today']}</td></tr></table>
+<h2>Активации (чит запущен с ключом)</h2>
+<table><tr><th></th><th>Всего</th><th>Сегодня</th><th>Уникальных всего</th><th>Уникальных сегодня</th></tr>
+<tr><td>Activations</td><td class=num>{s['act_total']}</td><td class=num>{s['act_today']}</td><td class=num>{s['act_uniq']}</td><td class=num>{s['act_uniq_today']}</td></tr></table>
+<h2>Ссылки созданы (Lootlabs + Work.ink)</h2>
+<table><tr><th></th><th>Всего</th><th>Сегодня</th><th>Уникальных всего</th><th>Уникальных сегодня</th></tr>
+<tr><td>Links created</td><td class=num>{s['links_total']}</td><td class=num>{s['links_today']}</td><td class=num>{s['links_uniq']}</td><td class=num>{s['links_uniq_today']}</td></tr></table>
+</body></html>"""
+    return html
 
 @app.route("/admin/blacklist", methods=["POST"])
 def admin_blacklist():
