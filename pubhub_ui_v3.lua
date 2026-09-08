@@ -39,6 +39,19 @@ local Theme = {
     TweenMed         = TweenInfo.new(0.2,  Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
 }
 
+-- ═══ Z-INDEX LAYERS ═══
+local ZLayers = {
+    Background = 1,
+    Window     = 10,
+    Sidebar    = 20,
+    Content    = 30,
+    Card       = 35,
+    Controls   = 40,
+    Dropdown   = 100,
+    Popup      = 200,
+    Tooltip    = 300,
+}
+
 -- Реестр для авто-обновления темы
 local ThemeRegistry = {}  -- { {inst=Instance, prop="BackgroundColor3", key="MainColor"}, ... }
 local function regColor(inst, prop, key)
@@ -771,19 +784,19 @@ function PubHubUI:CreateWindow(opts)
                 local open = false
                 local D = {}
 
+                -- Trigger row (остаётся в карточке)
                 local Row = new("Frame", {
                     Parent = Body,
                     Size = UDim2.new(1, 0, 0, 46),
                     BackgroundTransparency = 1,
                     LayoutOrder = #CardObj.Elements + 1,
-                    ClipsDescendants = false,
-                    ZIndex = 10,
+                    ZIndex = ZLayers.Controls,
                 })
 
                 label(Row, {
                     Text = o.Text or "Dropdown", Size = 12,
                     Size2 = UDim2.new(1, -8, 0, 16), Position = UDim2.fromOffset(4, 0),
-                    ColorKey = "TextColor", ZIndex = 10,
+                    ColorKey = "TextColor", ZIndex = ZLayers.Controls,
                 })
 
                 local function displayVal()
@@ -805,7 +818,7 @@ function PubHubUI:CreateWindow(opts)
                     TextXAlignment = Enum.TextXAlignment.Left,
                     BorderSizePixel = 0,
                     AutoButtonColor = false,
-                    ZIndex = 10,
+                    ZIndex = ZLayers.Controls,
                 })
                 regColor(Cur, "BackgroundColor3", "MainColor")
                 regColor(Cur, "TextColor3", "SubtextColor")
@@ -817,39 +830,78 @@ function PubHubUI:CreateWindow(opts)
                     Size2 = UDim2.fromOffset(16, 24),
                     Position = UDim2.new(1, -20, 0, 0),
                     Align = Enum.TextXAlignment.Center,
-                    ColorKey = "MutedColor", ZIndex = 11,
+                    ColorKey = "MutedColor", ZIndex = ZLayers.Controls + 1,
                 })
 
-                local OptFrame = new("Frame", {
-                    Parent = Row,
-                    Size = UDim2.new(1, -8, 0, 0),
-                    Position = UDim2.fromOffset(4, 46),
+                -- ═══ DROPDOWN LAYER (поверх всего) ═══
+                -- Создаём отдельный ScreenGui для dropdown-списка
+                local DDLayer = new("ScreenGui", {
+                    Name = "PubHub_DD_" .. HttpService:GenerateGUID(false):sub(1, 6),
+                    Parent = gethui(),
+                    ResetOnSpawn = false,
+                    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+                    DisplayOrder = 999,
+                    IgnoreGuiInset = true,
+                    Enabled = false,
+                })
+
+                local DDBackdrop = new("TextButton", {
+                    Parent = DDLayer,
+                    Size = UDim2.new(1, 0, 1, 0),
+                    BackgroundTransparency = 1,
+                    Text = "",
+                    ZIndex = ZLayers.Dropdown - 1,
+                })
+
+                local DDFrame = new("Frame", {
+                    Parent = DDLayer,
+                    Size = UDim2.fromOffset(200, 0),
+                    Position = UDim2.fromOffset(0, 0),
                     BorderSizePixel = 0,
-                    Visible = false,
-                    ZIndex = 200,
+                    Visible = true,
+                    ZIndex = ZLayers.Dropdown,
                     ClipsDescendants = true,
                 })
-                regColor(OptFrame, "BackgroundColor3", "MainColor")
-                corner(OptFrame, Theme.CornerRadiusSmall)
-                local os2 = stroke(OptFrame, 1, 0)
-                regColor(os2, "Color", "AccentColor")
+                regColor(DDFrame, "BackgroundColor3", "MainColor")
+                corner(DDFrame, Theme.CornerRadiusSmall)
+                local ddStroke = stroke(DDFrame, 1, 0)
+                regColor(ddStroke, "Color", "AccentColor")
 
-                new("UIListLayout", { Parent = OptFrame, Padding = UDim.new(0, 1), SortOrder = Enum.SortOrder.LayoutOrder })
-                padding(OptFrame, 3, 3, 3, 3)
+                local DDScroll = new("ScrollingFrame", {
+                    Parent = DDFrame,
+                    Size = UDim2.new(1, 0, 1, 0),
+                    BackgroundTransparency = 1,
+                    BorderSizePixel = 0,
+                    ScrollBarThickness = 2,
+                    CanvasSize = UDim2.new(0, 0, 0, 0),
+                    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                    ZIndex = ZLayers.Dropdown + 1,
+                })
+                regColor(DDScroll, "ScrollBarImageColor3", "AccentColor")
+                new("UIListLayout", { Parent = DDScroll, Padding = UDim.new(0, 1), SortOrder = Enum.SortOrder.LayoutOrder })
+                padding(DDScroll, 3, 3, 3, 3)
 
                 local function isSelected(v)
                     if multi then return value[v] == true end
                     return value == v
                 end
 
+                local function closeDD()
+                    open = false
+                    tween(Arrow, Theme.TweenFast, { Rotation = 0 })
+                    regColor(cs, "Color", "StrokeColor")
+                    tween(DDFrame, Theme.TweenFast, { Size = UDim2.fromOffset(DDFrame.Size.X.Offset, 0) })
+                    task.delay(0.12, function() DDLayer.Enabled = false end)
+                end
+
                 local function rebuild()
-                    for _, c in ipairs(OptFrame:GetChildren()) do
+                    for _, c in ipairs(DDScroll:GetChildren()) do
                         if c:IsA("TextButton") then c:Destroy() end
                     end
                     for i, v in ipairs(values) do
                         local sel = isSelected(v)
                         local OB = new("TextButton", {
-                            Parent = OptFrame,
+                            Parent = DDScroll,
                             Size = UDim2.new(1, 0, 0, 24),
                             Font = Theme.Font,
                             TextSize = 12,
@@ -858,7 +910,7 @@ function PubHubUI:CreateWindow(opts)
                             BorderSizePixel = 0,
                             AutoButtonColor = false,
                             LayoutOrder = i,
-                            ZIndex = 201,
+                            ZIndex = ZLayers.Dropdown + 2,
                         })
                         regColor(OB, "BackgroundColor3", sel and "TertiaryColor" or "MainColor")
                         regColor(OB, "TextColor3", sel and "AccentColor" or "TextColor")
@@ -875,10 +927,7 @@ function PubHubUI:CreateWindow(opts)
                                 if not value[v] then value[v] = nil end
                             else
                                 value = v
-                                open = false
-                                tween(OptFrame, Theme.TweenFast, { Size = UDim2.new(1, -8, 0, 0) })
-                                tween(Arrow, Theme.TweenFast, { Rotation = 0 })
-                                task.delay(0.14, function() OptFrame.Visible = false end)
+                                closeDD()
                             end
                             Cur.Text = "  " .. displayVal()
                             if o.Callback then pcall(o.Callback, value) end
@@ -888,43 +937,60 @@ function PubHubUI:CreateWindow(opts)
                 end
                 rebuild()
 
+                -- Позиционирование DDFrame относительно Cur
+                local function positionDD()
+                    local absPos = Cur.AbsolutePosition
+                    local absSize = Cur.AbsoluteSize
+                    local screenH = workspace.CurrentCamera.ViewportSize.Y
+                    local ddH = math.min(#values * 25 + 6, 180)
+                    local spaceBelow = screenH - (absPos.Y + absSize.Y)
+                    local spaceAbove = absPos.Y
+                    local y
+                    if spaceBelow >= ddH + 10 then
+                        y = absPos.Y + absSize.Y + 4  -- вниз
+                    elseif spaceAbove >= ddH + 10 then
+                        y = absPos.Y - ddH - 4  -- вверх
+                    else
+                        y = absPos.Y + absSize.Y + 4  -- fallback вниз
+                        ddH = math.max(80, spaceBelow - 10)
+                    end
+                    DDFrame.Position = UDim2.fromOffset(absPos.X, y)
+                    DDFrame.Size = UDim2.fromOffset(absSize.X, 0)
+                    return ddH
+                end
+
                 Cur.MouseButton1Click:Connect(function()
                     open = not open
                     if open then
-                        -- Поднимаем ZIndex всей карточки чтобы dropdown был поверх следующих
-                        local function raiseZ(inst, delta)
-                            for _, d in ipairs(inst:GetDescendants()) do
-                                if d:IsA("GuiObject") then d.ZIndex = d.ZIndex + delta end
+                        -- Закрыть все другие dropdown'ы
+                        for _, t in ipairs(Window.Tabs) do
+                            for _, el in ipairs(t.Elements) do
+                                if el._closeDropdown and el ~= D then pcall(el._closeDropdown) end
                             end
-                            if inst:IsA("GuiObject") then inst.ZIndex = inst.ZIndex + delta end
                         end
-                        pcall(function() raiseZ(Card, 200) end)
-                        OptFrame.Visible = true
-                        local h = math.min(#values * 25 + 6, 160)
-                        tween(OptFrame, Theme.TweenFast, { Size = UDim2.new(1, -8, 0, h) })
+                        rebuild()
+                        local targetH = positionDD()
+                        DDLayer.Enabled = true
                         tween(Arrow, Theme.TweenFast, { Rotation = 180 })
                         regColor(cs, "Color", "AccentColor")
+                        tween(DDFrame, Theme.TweenFast, { Size = UDim2.fromOffset(Cur.AbsoluteSize.X, targetH) })
                     else
-                        tween(OptFrame, Theme.TweenFast, { Size = UDim2.new(1, -8, 0, 0) })
-                        tween(Arrow, Theme.TweenFast, { Rotation = 0 })
-                        regColor(cs, "Color", "StrokeColor")
-                        task.delay(0.14, function()
-                            OptFrame.Visible = false
-                            -- Возвращаем ZIndex
-                            local function lowerZ(inst, delta)
-                                for _, d in ipairs(inst:GetDescendants()) do
-                                    if d:IsA("GuiObject") then d.ZIndex = math.max(1, d.ZIndex - delta) end
-                                end
-                                if inst:IsA("GuiObject") then inst.ZIndex = math.max(1, inst.ZIndex - delta) end
-                            end
-                            pcall(function() lowerZ(Card, 200) end)
-                        end)
+                        closeDD()
                     end
+                end)
+
+                -- Клик вне — закрыть
+                DDBackdrop.MouseButton1Click:Connect(closeDD)
+
+                -- Escape — закрыть
+                UIS.InputBegan:Connect(function(input, processed)
+                    if open and input.KeyCode == Enum.KeyCode.Escape then closeDD() end
                 end)
 
                 function D:SetValue(v) value = v; Cur.Text = "  " .. displayVal(); rebuild() end
                 function D:GetValue() return value end
                 function D:SetValues(nv) values = nv; rebuild() end
+                D._closeDropdown = closeDD
                 D._frame = Row; D._searchText = o.Text
                 table.insert(CardObj.Elements, D)
                 table.insert(Tab.Elements, D)
