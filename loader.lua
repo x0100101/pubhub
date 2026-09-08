@@ -2,7 +2,7 @@
 -- Entry point. Splash → Key GUI → Validate → Decrypt → Run main.
 -- Этот файл = то, что юзер вставляет через loadstring(game:HttpGet(...))
 
-local PUBHUB_API = "https://pubhub-api.vercel.app"  -- Vercel serverless backend
+local PUBHUB_API = "https://pubhub-ruddy.vercel.app"  -- Vercel serverless backend
 local MAIN_PAYLOAD_URL = "https://raw.githubusercontent.com/x0100101/pubhub/main/main.lua"  -- obfuscated cheat
 
 -- ─── SERVICE ───────────────────────────────────────────────────────────────
