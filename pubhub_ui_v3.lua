@@ -1692,7 +1692,382 @@ function PubHubUI:BuildGuiTab(Window)
         end,
     })
 
+    -- ─── Card: Watermark ───
+    local Wm = GuiTab:AddCard("Watermark", "left")
+    local WC = PubHubUI.WatermarkConfig
+
+    Wm:AddToggle({ Text = "Enable Watermark", Default = WC.Enabled, Callback = function(v)
+        WC.Enabled = v; SavedConfig.Watermark = WC; saveConfig(SavedConfig)
+        if PubHubUI.WatermarkFrame then PubHubUI.WatermarkFrame.Visible = v end
+    end })
+
+    Wm:AddDropdown({
+        Text = "Position",
+        Values = { "Top Left", "Top Center", "Top Right", "Bottom Left", "Bottom Center", "Bottom Right" },
+        Default = WC.Position:gsub("(%u)", " %1"):gsub("^ ", ""),
+        Callback = function(v)
+            WC.Position = v:gsub(" ", "")
+            SavedConfig.Watermark = WC; saveConfig(SavedConfig)
+            if PubHubUI.RepositionWatermark then PubHubUI.RepositionWatermark() end
+        end,
+    })
+
+    Wm:AddToggle({ Text = "Compact Mode", Default = WC.CompactMode, Callback = function(v)
+        WC.CompactMode = v; SavedConfig.Watermark = WC; saveConfig(SavedConfig)
+        if PubHubUI.RebuildWatermark then PubHubUI.RebuildWatermark() end
+    end })
+
+    Wm:AddToggle({ Text = "Show Username", Default = WC.ShowUsername, Callback = function(v)
+        WC.ShowUsername = v; SavedConfig.Watermark = WC; saveConfig(SavedConfig)
+        if PubHubUI.RebuildWatermark then PubHubUI.RebuildWatermark() end
+    end })
+    Wm:AddToggle({ Text = "Show Key Time", Default = WC.ShowKeyTime, Callback = function(v)
+        WC.ShowKeyTime = v; SavedConfig.Watermark = WC; saveConfig(SavedConfig)
+        if PubHubUI.RebuildWatermark then PubHubUI.RebuildWatermark() end
+    end })
+    Wm:AddToggle({ Text = "Show Clock", Default = WC.ShowClock, Callback = function(v)
+        WC.ShowClock = v; SavedConfig.Watermark = WC; saveConfig(SavedConfig)
+        if PubHubUI.RebuildWatermark then PubHubUI.RebuildWatermark() end
+    end })
+    Wm:AddToggle({ Text = "Show FPS", Default = WC.ShowFPS, Callback = function(v)
+        WC.ShowFPS = v; SavedConfig.Watermark = WC; saveConfig(SavedConfig)
+        if PubHubUI.RebuildWatermark then PubHubUI.RebuildWatermark() end
+    end })
+    Wm:AddToggle({ Text = "Show Ping", Default = WC.ShowPing, Callback = function(v)
+        WC.ShowPing = v; SavedConfig.Watermark = WC; saveConfig(SavedConfig)
+        if PubHubUI.RebuildWatermark then PubHubUI.RebuildWatermark() end
+    end })
+    Wm:AddToggle({ Text = "Show Server", Default = WC.ShowServer, Callback = function(v)
+        WC.ShowServer = v; SavedConfig.Watermark = WC; saveConfig(SavedConfig)
+        if PubHubUI.RebuildWatermark then PubHubUI.RebuildWatermark() end
+    end })
+    Wm:AddToggle({ Text = "Show Game", Default = WC.ShowGame, Callback = function(v)
+        WC.ShowGame = v; SavedConfig.Watermark = WC; saveConfig(SavedConfig)
+        if PubHubUI.RebuildWatermark then PubHubUI.RebuildWatermark() end
+    end })
+    Wm:AddToggle({ Text = "Show Session Time", Default = WC.ShowSessionTime, Callback = function(v)
+        WC.ShowSessionTime = v; SavedConfig.Watermark = WC; saveConfig(SavedConfig)
+        if PubHubUI.RebuildWatermark then PubHubUI.RebuildWatermark() end
+    end })
+    Wm:AddToggle({ Text = "Show Executor", Default = WC.ShowExecutor, Callback = function(v)
+        WC.ShowExecutor = v; SavedConfig.Watermark = WC; saveConfig(SavedConfig)
+        if PubHubUI.RebuildWatermark then PubHubUI.RebuildWatermark() end
+    end })
+    Wm:AddToggle({ Text = "Show Version", Default = WC.ShowVersion, Callback = function(v)
+        WC.ShowVersion = v; SavedConfig.Watermark = WC; saveConfig(SavedConfig)
+        if PubHubUI.RebuildWatermark then PubHubUI.RebuildWatermark() end
+    end })
+
+    Wm:AddSlider({ Text = "Transparency", Min = 0, Max = 90, Default = math.floor(WC.Transparency * 100), Callback = function(v)
+        WC.Transparency = v / 100
+        SavedConfig.Watermark = WC; saveConfig(SavedConfig)
+        if PubHubUI.WatermarkFrame then PubHubUI.WatermarkFrame.BackgroundTransparency = WC.Transparency end
+    end })
+
+    Wm:AddSlider({ Text = "Scale (%)", Min = 50, Max = 200, Default = math.floor(WC.Scale * 100), Callback = function(v)
+        WC.Scale = v / 100
+        SavedConfig.Watermark = WC; saveConfig(SavedConfig)
+        if PubHubUI.WatermarkFrame then
+            PubHubUI.WatermarkFrame.Size = UDim2.fromOffset(320 * WC.Scale, PubHubUI.WatermarkFrame.Size.Y.Offset)
+        end
+    end })
+
     return GuiTab
 end
+
+-- ═══ WATERMARK ═══
+PubHubUI.WatermarkConfig = SavedConfig.Watermark or {
+    Enabled = true,
+    Position = "TopLeft",
+    ShowUsername = true,
+    ShowKeyTime = true,
+    ShowClock = true,
+    ShowFPS = true,
+    ShowPing = true,
+    ShowServer = true,
+    ShowGame = false,
+    ShowSessionTime = false,
+    ShowExecutor = false,
+    ShowVersion = true,
+    Transparency = 0,
+    Scale = 1,
+    CompactMode = false,
+}
+
+-- SetKeyData — вызывается из loader после валидации
+-- PubHubUI:SetKeyData({ ExpiresAt = 1788919861, Hours = 12 })
+PubHubUI._keyData = nil
+function PubHubUI:SetKeyData(kd) PubHubUI._keyData = kd end
+
+local _wmGui, _wmFrame, _wmLabels = nil, nil, {}
+local _wmStartTime = os.clock()
+local _wmFps, _wmLastFpsT, _wmFrames = 0, os.clock(), 0
+
+-- FPS counter
+RunService.RenderStepped:Connect(function()
+    _wmFrames = _wmFrames + 1
+    local now = os.clock()
+    if now - _wmLastFpsT >= 1 then
+        _wmFps = math.floor(_wmFrames / (now - _wmLastFpsT) + 0.5)
+        _wmFrames = 0
+        _wmLastFpsT = now
+    end
+end)
+
+local function getPing()
+    local ok, p = pcall(function()
+        return math.floor(lp:GetNetworkPing() * 1000)
+    end)
+    return ok and p or 0
+end
+
+local function getExecutor()
+    local ok, name = pcall(function()
+        return identifyexecutor and identifyexecutor() or "Unknown"
+    end)
+    return ok and tostring(name) or "Unknown"
+end
+
+local function getGameName()
+    local ok, name = pcall(function()
+        return game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
+    end)
+    return ok and name or "Game"
+end
+
+local function getServerRegion()
+    -- Нет прямого API. Эвристика: смотрим на JobId / просто "Global"
+    return "Global"
+end
+
+local function formatKeyTime()
+    if not PubHubUI._keyData then return "No Key" end
+    local exp = PubHubUI._keyData.ExpiresAt
+    if not exp then return "Lifetime" end
+    local remaining = exp - os.time()
+    if remaining <= 0 then return "Expired" end
+    local d = math.floor(remaining / 86400)
+    local h = math.floor((remaining % 86400) / 3600)
+    local m = math.floor((remaining % 3600) / 60)
+    if d > 0 then return string.format("%dd %dh %dm", d, h, m) end
+    if h > 0 then return string.format("%dh %dm", h, m) end
+    return string.format("%dm", m)
+end
+
+local function keyColor()
+    if not PubHubUI._keyData or not PubHubUI._keyData.ExpiresAt then return Theme.TextColor end
+    local remaining = PubHubUI._keyData.ExpiresAt - os.time()
+    if remaining <= 0 then return Theme.ErrorColor end
+    if remaining < 86400 then return Theme.ErrorColor end
+    if remaining < 7 * 86400 then return Theme.WarningColor end
+    return Theme.SuccessColor
+end
+
+local function fpsColor(fps)
+    if fps >= 120 then return Theme.SuccessColor end
+    if fps >= 60 then return Theme.TextColor end
+    return Theme.WarningColor
+end
+
+local function pingColor(ping)
+    if ping < 50 then return Theme.SuccessColor end
+    if ping < 100 then return Theme.TextColor end
+    return Theme.WarningColor
+end
+
+local function wmPosition(pos)
+    local map = {
+        TopLeft     = { anchor = Vector2.new(0, 0),   pos = UDim2.new(0, 16, 0, 16) },
+        TopCenter   = { anchor = Vector2.new(0.5, 0), pos = UDim2.new(0.5, 0, 0, 16) },
+        TopRight    = { anchor = Vector2.new(1, 0),   pos = UDim2.new(1, -16, 0, 16) },
+        BottomLeft  = { anchor = Vector2.new(0, 1),   pos = UDim2.new(0, 16, 1, -16) },
+        BottomCenter= { anchor = Vector2.new(0.5, 1), pos = UDim2.new(0.5, 0, 1, -16) },
+        BottomRight = { anchor = Vector2.new(1, 1),   pos = UDim2.new(1, -16, 1, -16) },
+    }
+    return map[pos] or map.TopLeft
+end
+
+function PubHubUI.RebuildWatermark()
+    if _wmFrame then pcall(function() _wmFrame:Destroy() end) end
+    if _wmGui then pcall(function() _wmGui:Destroy() end) end
+    _wmLabels = {}
+
+    local WC = PubHubUI.WatermarkConfig
+    if not WC.Enabled then return end
+
+    _wmGui = new("ScreenGui", {
+        Name = "PubHub_WM_" .. HttpService:GenerateGUID(false):sub(1, 6),
+        Parent = gethui(),
+        ResetOnSpawn = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        DisplayOrder = 900,
+        IgnoreGuiInset = true,
+    })
+
+    local posInfo = wmPosition(WC.Position)
+    local baseW = math.floor(320 * WC.Scale)
+    local baseH = WC.CompactMode and 32 or 64
+
+    _wmFrame = new("Frame", {
+        Parent = _wmGui,
+        Size = UDim2.fromOffset(baseW, baseH),
+        Position = posInfo.pos,
+        AnchorPoint = posInfo.anchor,
+        BorderSizePixel = 0,
+        BackgroundTransparency = WC.Transparency,
+        Active = true,
+        ZIndex = 900,
+    })
+    regColor(_wmFrame, "BackgroundColor3", "SecondaryColor")
+    corner(_wmFrame, Theme.CornerRadius)
+    stroke(_wmFrame, 1, 0)
+    PubHubUI.WatermarkFrame = _wmFrame
+
+    -- Accent bar слева
+    local Bar = new("Frame", {
+        Parent = _wmFrame,
+        Size = UDim2.fromOffset(2, 1),
+        BorderSizePixel = 0,
+        ZIndex = 901,
+    })
+    regColor(Bar, "BackgroundColor3", "AccentColor")
+    corner(Bar, UDim.new(1, 0))
+
+    local Inner = new("Frame", {
+        Parent = _wmFrame,
+        Size = UDim2.new(1, -16, 1, 0),
+        Position = UDim2.fromOffset(12, 0),
+        BackgroundTransparency = 1,
+        ZIndex = 901,
+    })
+
+    local function mkLbl(yOff, size, font, colorKey)
+        local l = label(Inner, {
+            Text = "", Size = size, Font = font,
+            Size2 = UDim2.new(1, 0, 0, size + 4),
+            Position = UDim2.fromOffset(0, yOff),
+            ColorKey = colorKey or "SubtextColor",
+            ZIndex = 902,
+        })
+        return l
+    end
+
+    -- Row 1: PubHub • Username
+    local row1 = mkLbl(6, 13, Theme.FontBold, "TextColor")
+    _wmLabels.row1 = row1
+
+    if not WC.CompactMode then
+        -- Divider
+        local div = new("Frame", {
+            Parent = Inner,
+            Size = UDim2.new(1, 0, 0, 1),
+            Position = UDim2.fromOffset(0, 26),
+            BorderSizePixel = 0,
+            ZIndex = 902,
+        })
+        regColor(div, "BackgroundColor3", "StrokeColor")
+
+        -- Row 2: Key + Clock
+        _wmLabels.row2 = mkLbl(30, 11, Theme.Font, "SubtextColor")
+        -- Row 3: FPS + Ping + Server
+        _wmLabels.row3 = mkLbl(44, 11, Theme.Font, "SubtextColor")
+    end
+
+    -- Dragging
+    local wmDrag, wmDragStart, wmStartPos = false, nil, nil
+    _wmFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            wmDrag = true; wmDragStart = input.Position; wmStartPos = _wmFrame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    wmDrag = false
+                    -- Сохраняем custom позицию
+                    WC.CustomPos = { X = _wmFrame.Position.X.Offset, Y = _wmFrame.Position.Y.Offset,
+                                     XS = _wmFrame.Position.X.Scale, YS = _wmFrame.Position.Y.Scale }
+                    SavedConfig.Watermark = WC
+                    saveConfig(SavedConfig)
+                end
+            end)
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if wmDrag and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - wmDragStart
+            _wmFrame.Position = UDim2.new(wmStartPos.X.Scale, wmStartPos.X.Offset + delta.X,
+                                          wmStartPos.Y.Scale, wmStartPos.Y.Offset + delta.Y)
+        end
+    end)
+
+    -- Восстановление custom позиции
+    if WC.CustomPos then
+        _wmFrame.AnchorPoint = Vector2.new(0, 0)
+        _wmFrame.Position = UDim2.new(WC.CustomPos.XS, WC.CustomPos.X, WC.CustomPos.YS, WC.CustomPos.Y)
+    end
+
+    -- Entrance
+    _wmFrame.BackgroundTransparency = 1
+    tween(_wmFrame, Theme.TweenMed, { BackgroundTransparency = WC.Transparency })
+
+    PubHubUI.RepositionWatermark = function()
+        if not WC.CustomPos and _wmFrame then
+            local p = wmPosition(WC.Position)
+            _wmFrame.AnchorPoint = p.anchor
+            _wmFrame.Position = p.pos
+        end
+    end
+end
+
+-- Watermark update loop (1 секунда)
+task.spawn(function()
+    while true do
+        task.wait(1)
+        local WC = PubHubUI.WatermarkConfig
+        if not WC.Enabled or not _wmFrame or not _wmFrame.Parent then continue end
+
+        -- Row 1: PubHub • Username
+        local parts1 = { "PubHub" }
+        if WC.ShowUsername then table.insert(parts1, lp.Name) end
+        if WC.ShowVersion then table.insert(parts1, "v2.0") end
+        _wmLabels.row1.Text = table.concat(parts1, "  •  ")
+
+        if WC.CompactMode then
+            -- Compact: row1 only + key + clock
+            if WC.ShowKeyTime then table.insert(parts1, formatKeyTime()) end
+            if WC.ShowClock then table.insert(parts1, os.date("%H:%M")) end
+            _wmLabels.row1.Text = table.concat(parts1, "  •  ")
+        else
+            -- Row 2: Key + Clock
+            local parts2 = {}
+            if WC.ShowKeyTime then
+                local kt = formatKeyTime()
+                _wmLabels.row2.TextColor3 = keyColor()
+                table.insert(parts2, "Key: " .. kt)
+            end
+            if WC.ShowClock then table.insert(parts2, os.date("%H:%M")) end
+            if WC.ShowSessionTime then
+                local st = math.floor(os.clock() - _wmStartTime)
+                table.insert(parts2, string.format("%dm %ds", st // 60, st % 60))
+            end
+            if _wmLabels.row2 then _wmLabels.row2.Text = table.concat(parts2, "  •  ") end
+
+            -- Row 3: FPS + Ping + Server
+            local parts3 = {}
+            if WC.ShowFPS then
+                table.insert(parts3, tostring(_wmFps) .. " FPS")
+                if _wmLabels.row3 then _wmLabels.row3.TextColor3 = fpsColor(_wmFps) end
+            end
+            if WC.ShowPing then table.insert(parts3, getPing() .. "ms") end
+            if WC.ShowServer then table.insert(parts3, getServerRegion()) end
+            if WC.ShowGame then table.insert(parts3, getGameName()) end
+            if WC.ShowExecutor then table.insert(parts3, getExecutor()) end
+            if _wmLabels.row3 then _wmLabels.row3.Text = table.concat(parts3, "  •  ") end
+        end
+    end
+end)
+
+-- Auto-spawn watermark
+task.delay(0.5, function()
+    PubHubUI.RebuildWatermark()
+end)
 
 return PubHubUI
