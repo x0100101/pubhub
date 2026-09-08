@@ -135,9 +135,13 @@ def create_lootlabs_link(checkpoints: int, redeem_url: str):
         with urllib.request.urlopen(req, timeout=API_TIMEOUT) as r:
             body = json.loads(r.read().decode())
             if body.get("type") in ("created", "fetch"):
-                msg = body.get("message") or {}
-                link = msg.get("loot_url") or msg.get("url")
-                if link: return link, None
+                msg = body.get("message")
+                # message может быть list [{...}] или dict {...}
+                if isinstance(msg, list) and msg:
+                    msg = msg[0]
+                if isinstance(msg, dict):
+                    link = msg.get("loot_url") or msg.get("url")
+                    if link: return link, None
                 return None, f"no loot_url in response: {body}"
             return None, f"lootlabs error: {body}"
     except urllib.error.HTTPError as e:
