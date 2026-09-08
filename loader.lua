@@ -176,7 +176,6 @@ Status.Parent = SplashFrame
 -- Splash animations
 task.spawn(function()
     -- Entrance
-    SplashFrame.GroupTransparency = 1
     SplashFrame.Size = UDim2.fromOffset(280, 170)
     TweenService:Create(SplashFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
         Size = UDim2.fromOffset(360, 220)
@@ -485,8 +484,17 @@ local function getLootlabsLink(checkpoints)
         return nil
     end
     if data.url then
-        pcall(function() setclipboard(data.url) end)
-        setStatus(string.format("Link copied! %d checkpoints = %d hours", checkpoints, data.hours or 0), true)
+        local copied = pcall(function()
+            if setclipboard then setclipboard(data.url)
+            elseif toclipboard then toclipboard(data.url) end
+        end)
+        if copied then
+            setStatus(string.format("Link copied! %d checkpoints = %d hours", checkpoints, data.hours or 0), true)
+        else
+            setStatus("Link: " .. data.url, true)
+        end
+        -- fallback: покажем url в input для ручного копирования
+        pcall(function() KeyInput.Text = data.url end)
         return data.url
     else
         setStatus(data.error or "Failed to generate link", false)
