@@ -25,6 +25,9 @@ UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
 DURATIONS = {2: 12, 3: 24, 5: 48}
 # Реальный Lootlabs API endpoint (из официальной доки):
 LOOTLABS_CREATE_URL = "https://creators.lootlabs.gg/api/public/content_locker"
+# Work.ink Link API
+WORKINK_API_KEY = os.environ.get("WORKINK_API_KEY", "")
+WORKINK_CREATE_URL = "https://dashboard.work.ink/_api/v1/link"
 RATE_LIMIT_PER_MIN = 10
 KEY_RATE_LIMIT_PER_DAY = 6
 TOKEN_TTL = 3600
@@ -150,6 +153,52 @@ def create_lootlabs_link(checkpoints: int, redeem_url: str):
     except Exception as e:
         return None, f"lootlabs request failed: {e}"
 
+def create_workink_link(redeem_url: str):
+    """
+    Work.ink Link API — создаёт монетизированную ссылку.
+    POST https://dashboard.work.ink/_api/v1/link
+    Header: X-Api-Key
+    Body: {title, destination, link_description?, custom?}
+    Response: {"error":false,"response":{...,"url":"https://work.ink/..."}} или {url}
+    ВАЖНО: Work.ink не поддерживает программный checkpoints через Link API —
+    количество шагов настраивается в dashboard на уровне аккаунта/ссылки.
+    Мы создаём 3 линка заранее (12/24/48h) с разными destination URL, каждый
+    ведёт на свой /redeem_workink?t=<token> endpoint.
+    """
+    if not WORKINK_API_KEY:
+        return None, "workink api key not configured"
+    payload = {
+        "title": "PubHub Key",
+        "destination": redeem_url,
+        "link_description": "Complete to get your PubHub key",
+    }
+    req = urllib.request.Request(
+        WORKINK_CREATE_URL,
+        data=json.dumps(payload).encode(),
+        headers={
+            "X-Api-Key": WORKINK_API_KEY,
+            "Content-Type": "application/json",
+            "User-Agent": "PubHub-KeySystem/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=API_TIMEOUT) as r:
+            body = json.loads(r.read().decode())
+            # Успех: {error:false, response:{url:...}} или {url:...} напрямую
+            if body.get("error") is False:
+                resp = body.get("response") or body
+                link = resp.get("url") or resp.get("link") or resp.get("short_url")
+                if link: return link, None
+            elif "url" in body:
+                return body["url"], None
+            return None, f"workink error: {body}"
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="ignore")[:500]
+        return None, f"workink HTTP {e.code}: {body}"
+    except Exception as e:
+        return None, f"workink request failed: {e}"
+
 # ─── ROUTES ────────────────────────────────────────────────────────────────
 @app.route("/")
 def index():
@@ -269,6 +318,83 @@ def postback():
 
     redis_set(f"tok:{click_id}", json.dumps(tdata), ex=TOKEN_TTL)
     return f"OK_PROGRESS_{tdata['completed_tasks']}/{tdata['ckpts']}", 200
+
+# ─── Work.ink ──────────────────────────────────────────────────────────────
+@app.route("/getlink_workink")
+def getlink_workink():
+    """
+    Work.ink вариант — Link API не имеет postback, поэтому ключ выдаётся по редиректу.
+    Доверяем тому, что юзер прошёл Work.ink (их ссылки не обходятся без выполнения tasks).
+    """
+    hwid = (request.args.get("hw") or "").strip()[:64]
+    try: ckpts = int(request.args.get("c", "0"))
+    except ValueError: return jsonify({"error": "bad checkpoints"}), 400
+    if not hwid or len(hwid) < 6: return jsonify({"error": "bad hwid"}), 400
+    if ckpts not in DURATIONS: return jsonify({"error": "checkpoints 2|3|5"}), 400
+    if blacklisted(hwid): return jsonify({"error": "hwid blocked"}), 403
+    if not rate_key_ok(hwid): return jsonify({"error": "rate limit"}), 429
+
+    token = secrets.token_urlsafe(24)
+    redeem_url = request.url_root.rstrip("/") + f"/redeem_workink?t={token}"
+    redis_set(f"tok:{token}", json.dumps({
+        "hwid": hwid, "ckpts": ckpts, "provider": "workink", "used": 0,
+    }), ex=TOKEN_TTL)
+
+    link, err = create_workink_link(redeem_url)
+    if err:
+        return jsonify({"error": err}), 502
+    return jsonify({"url": link, "checkpoints": ckpts, "hours": DURATIONS[ckpts], "provider": "workink"})
+
+@app.route("/redeem_workink")
+def redeem_workink():
+    """
+    Work.ink редиректит сюда после прохождения. Выдаём ключ сразу.
+    Доверие основано на том, что Work.ink не пускает на destination без выполнения.
+    """
+    token = (request.args.get("t") or "").strip()[:128]
+    if not token: return "<h1>Bad request</h1>", 400
+    raw = redis_get(f"tok:{token}")
+    if not raw: return "<h1>Сессия не найдена</h1><p>Запросите новую ссылку.</p>", 404
+    try: tdata = json.loads(raw)
+    except Exception: return "<h1>Bad session</h1>", 500
+    if tdata.get("used"): return "<h1>Токен уже использован</h1>", 403
+    if tdata.get("provider") != "workink": return "<h1>Wrong provider</h1>", 400
+
+    # Атомарно — удаляем токен, чтобы нельзя было зафармить
+    deleted = redis_call("GETDEL", f"tok:{token}")
+    if not deleted: return "<h1>Токен уже использован</h1>", 403
+
+    hwid, ckpts = tdata["hwid"], tdata["ckpts"]
+    hours = DURATIONS[ckpts]
+    issued = now()
+    expires = issued + hours * 3600
+    key = format_key(hwid, ckpts, issued, hours)
+    redis_set(f"key:{key}", json.dumps({
+        "hwid": hwid, "ckpts": ckpts, "hours": hours,
+        "created_at": issued, "expires_at": expires,
+        "ip": get_ip(), "ua": request.headers.get("User-Agent", "")[:200],
+        "provider": "workink",
+    }), ex=hours * 3600 + 3600)
+    redis_incr("stats:total")
+    redis_incr(f"stats:day:{datetime.utcnow().strftime('%Y-%m-%d')}")
+
+    html = f"""<!doctype html><html><head><meta charset=utf-8><title>PubHub — Key</title>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<style>
+body{{background:#0a0c14;color:#e8ecf8;font-family:Inter,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:1rem}}
+.card{{background:linear-gradient(135deg,#12141f 0%,#1a1030 100%);padding:2.5rem 3rem;border-radius:20px;border:1px solid #8b5cf6;max-width:520px;text-align:center;box-shadow:0 20px 60px -20px rgba(139,92,246,.4)}}
+h1{{background:linear-gradient(90deg,#8b5cf6,#ec4899);-webkit-background-clip:text;background-clip:text;color:transparent;margin:0 0 .5rem;font-size:2.2rem}}
+.key{{font-family:'JetBrains Mono',monospace;font-size:1.25rem;background:#0f1119;padding:1.2rem;border-radius:12px;margin:1.5rem 0;user-select:all;border:1px solid #8b5cf6;letter-spacing:1px;color:#c4b5fd}}
+p{{color:#9aa3c0;line-height:1.5}}
+.badge{{display:inline-block;background:#8b5cf6;color:#fff;padding:.3rem .8rem;border-radius:99px;font-size:.85rem;font-weight:600}}
+</style></head><body><div class=card>
+<h1>PubHub</h1>
+<span class=badge>{hours} hours · via Work.ink</span>
+<p>Your key is ready — copy and paste into PubHub window in Roblox</p>
+<div class=key>{key}</div>
+<p style=font-size:.85rem>Expires: {datetime.utcfromtimestamp(expires).strftime('%Y-%m-%d %H:%M UTC')}</p>
+</div></body></html>"""
+    return html
 
 @app.route("/redeem")
 def redeem():
