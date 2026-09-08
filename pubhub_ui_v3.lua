@@ -1066,69 +1066,182 @@ function PubHubUI:CreateWindow(opts)
                 corner(Preview, Theme.CornerRadiusSmall)
                 stroke(Preview, 1, 0)
 
-                -- Простая палитра (grid цветов)
-                local Palette = new("Frame", {
-                    Parent = Row,
-                    Size = UDim2.new(1, -8, 0, 0),
-                    Position = UDim2.fromOffset(4, 30),
+                -- Popup ColorPicker окно
+                local Popup = new("Frame", {
+                    Parent = SG,
+                    Size = UDim2.fromOffset(240, 200),
+                    Position = UDim2.fromScale(0.5, 0.5),
+                    AnchorPoint = Vector2.new(0.5, 0.5),
                     BorderSizePixel = 0,
                     Visible = false,
-                    ZIndex = 200,
-                    ClipsDescendants = true,
+                    ZIndex = 500,
                 })
-                regColor(Palette, "BackgroundColor3", "MainColor")
-                corner(Palette, Theme.CornerRadiusSmall)
-                stroke(Palette, 1, 0)
-                padding(Palette, 6, 6, 6, 6)
+                regColor(Popup, "BackgroundColor3", "SecondaryColor")
+                corner(Popup, UDim.new(0, 10))
+                stroke(Popup, 1, 0)
 
-                local Grid = new("UIGridLayout", {
-                    Parent = Palette,
-                    CellSize = UDim2.fromOffset(22, 22),
-                    CellPadding = UDim2.fromOffset(4, 4),
-                    SortOrder = Enum.SortOrder.LayoutOrder,
+                -- Gradient hue bar
+                local HueBar = new("Frame", {
+                    Parent = Popup,
+                    Size = UDim2.new(1, -20, 0, 20),
+                    Position = UDim2.fromOffset(10, 10),
+                    BorderSizePixel = 0,
+                    ZIndex = 501,
+                })
+                corner(HueBar, UDim.new(0, 6))
+                new("UIGradient", {
+                    Parent = HueBar,
+                    Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
+                        ColorSequenceKeypoint.new(0.17, Color3.fromRGB(255, 255, 0)),
+                        ColorSequenceKeypoint.new(0.33, Color3.fromRGB(0, 255, 0)),
+                        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(0, 255, 255)),
+                        ColorSequenceKeypoint.new(0.67, Color3.fromRGB(0, 0, 255)),
+                        ColorSequenceKeypoint.new(0.83, Color3.fromRGB(255, 0, 255)),
+                        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0)),
+                    }),
                 })
 
-                local presetColors = {
-                    Color3.fromRGB(139, 92, 246), Color3.fromRGB(236, 72, 153),
-                    Color3.fromRGB(59, 130, 246), Color3.fromRGB(34, 211, 238),
-                    Color3.fromRGB(52, 211, 153), Color3.fromRGB(251, 191, 36),
-                    Color3.fromRGB(248, 113, 113), Color3.fromRGB(255, 255, 255),
-                    Color3.fromRGB(148, 163, 184), Color3.fromRGB(94, 96, 110),
-                    Color3.fromRGB(30, 30, 40), Color3.fromRGB(0, 0, 0),
-                }
+                local hue = 0
+                local sat = 1
+                local val = 1
 
-                for i, c in ipairs(presetColors) do
-                    local Sw = new("TextButton", {
-                        Parent = Palette,
-                        BackgroundColor3 = c,
-                        Text = "",
-                        BorderSizePixel = 0,
-                        AutoButtonColor = false,
-                        LayoutOrder = i,
-                        ZIndex = 201,
-                    })
-                    corner(Sw, UDim.new(0, 4))
-                    stroke(Sw, 1, 0.5)
-                    Sw.MouseButton1Click:Connect(function()
-                        value = c
-                        Preview.BackgroundColor3 = c
-                        Palette.Visible = false
-                        Palette.Size = UDim2.new(1, -8, 0, 0)
-                        if o.Callback then pcall(o.Callback, c) end
-                    end)
+                local HueSlider = new("TextButton", {
+                    Parent = HueBar,
+                    Size = UDim2.new(1, 0, 1, 0),
+                    BackgroundTransparency = 1,
+                    Text = "",
+                    ZIndex = 502,
+                })
+
+                local HueMarker = new("Frame", {
+                    Parent = HueBar,
+                    Size = UDim2.fromOffset(4, 20),
+                    Position = UDim2.new(0, 0, 0, 0),
+                    BackgroundColor3 = Color3.new(1, 1, 1),
+                    BorderSizePixel = 0,
+                    ZIndex = 503,
+                })
+                corner(HueMarker, UDim.new(0, 2))
+
+                -- Saturation/Value box
+                local SVBox = new("Frame", {
+                    Parent = Popup,
+                    Size = UDim2.new(1, -20, 0, 80),
+                    Position = UDim2.fromOffset(10, 40),
+                    BorderSizePixel = 0,
+                    ZIndex = 501,
+                })
+                corner(SVBox, UDim.new(0, 6))
+
+                local SVGrad = new("UIGradient", {
+                    Parent = SVBox,
+                    Color = ColorSequence.new(Color3.fromHSV(hue, 1, 1), Color3.fromHSV(hue, 1, 1)),
+                })
+
+                local SVCross = new("Frame", {
+                    Parent = SVBox,
+                    Size = UDim2.fromOffset(10, 10),
+                    Position = UDim2.fromScale(0.5, 0.5),
+                    AnchorPoint = Vector2.new(0.5, 0.5),
+                    BackgroundColor3 = Color3.new(1, 1, 1),
+                    BorderSizePixel = 0,
+                    ZIndex = 503,
+                })
+                corner(SVCross, UDim.new(1, 0))
+
+                -- HEX input
+                local HexBox = new("TextBox", {
+                    Parent = Popup,
+                    Size = UDim2.new(1, -20, 0, 24),
+                    Position = UDim2.fromOffset(10, 130),
+                    Font = Theme.Font,
+                    TextSize = 12,
+                    Text = colorToHex(value),
+                    PlaceholderText = "#FFFFFF",
+                    BorderSizePixel = 0,
+                    ZIndex = 501,
+                })
+                regColor(HexBox, "BackgroundColor3", "MainColor")
+                regColor(HexBox, "TextColor3", "TextColor")
+                regColor(HexBox, "PlaceholderColor3", "MutedColor")
+                corner(HexBox, Theme.CornerRadiusSmall)
+                stroke(HexBox, 1, 0)
+                padding(HexBox, 0, 8, 0, 8)
+
+                -- RGB labels
+                local rgbLbl = label(Popup, {
+                    Text = "RGB: 139, 92, 246",
+                    Size = 11,
+                    Size2 = UDim2.new(1, -20, 0, 16),
+                    Position = UDim2.fromOffset(10, 160),
+                    ColorKey = "SubtextColor",
+                    ZIndex = 501,
+                })
+
+                -- Apply button
+                local ApplyBtn = new("TextButton", {
+                    Parent = Popup,
+                    Size = UDim2.new(1, -20, 0, 24),
+                    Position = UDim2.fromOffset(10, 178),
+                    Font = Theme.FontMedium,
+                    TextSize = 12,
+                    Text = "Apply",
+                    BorderSizePixel = 0,
+                    AutoButtonColor = false,
+                    ZIndex = 501,
+                })
+                regColor(ApplyBtn, "BackgroundColor3", "AccentColor")
+                regColor(ApplyBtn, "TextColor3", "TextColor")
+                corner(ApplyBtn, Theme.CornerRadiusSmall)
+
+                local function updateColor()
+                    value = Color3.fromHSV(hue, sat, val)
+                    Preview.BackgroundColor3 = value
+                    HexBox.Text = colorToHex(value)
+                    rgbLbl.Text = string.format("RGB: %d, %d, %d",
+                        math.floor(value.R * 255),
+                        math.floor(value.G * 255),
+                        math.floor(value.B * 255))
+                    if o.Callback then pcall(o.Callback, value) end
                 end
 
-                local pOpen = false
-                Preview.MouseButton1Click:Connect(function()
-                    pOpen = not pOpen
-                    if pOpen then
-                        Palette.Visible = true
-                        local rows = math.ceil(#presetColors / 8)
-                        tween(Palette, Theme.TweenFast, { Size = UDim2.new(1, -8, 0, rows * 26 + 12) })
-                    else
-                        tween(Palette, Theme.TweenFast, { Size = UDim2.new(1, -8, 0, 0) })
-                        task.delay(0.14, function() Palette.Visible = false end)
+                local hueDragging = false
+                HueSlider.MouseButton1Down:Connect(function()
+                    hueDragging = true
+                end)
+                UIS.InputEnded:Connect(function(i)
+                    if i.UserInputType == Enum.UserInputType.MouseButton1 then hueDragging = false end
+                end)
+                UIS.InputChanged:Connect(function(i)
+                    if hueDragging and i.UserInputType == Enum.UserInputType.MouseMovement then
+                        local pos = math.clamp((i.Position.X - HueBar.AbsolutePosition.X) / HueBar.AbsoluteSize.X, 0, 1)
+                        hue = pos
+                        HueMarker.Position = UDim2.new(pos, -2, 0, 0)
+                        SVGrad.Color = ColorSequence.new(Color3.fromHSV(hue, 1, 1), Color3.fromHSV(hue, 1, 1))
+                        updateColor()
                     end
+                end)
+
+                HexBox.FocusLost:Connect(function(enter)
+                    if enter then
+                        local c = hexToColor(HexBox.Text)
+                        if c then
+                            value = c
+                            local h, s, v = c:ToHSV()
+                            hue, sat, val = h, s, v
+                            HueMarker.Position = UDim2.new(hue, -2, 0, 0)
+                            updateColor()
+                        end
+                    end
+                end)
+
+                ApplyBtn.MouseButton1Click:Connect(function()
+                    Popup.Visible = false
+                end)
+
+                Preview.MouseButton1Click:Connect(function()
+                    Popup.Visible = not Popup.Visible
                 end)
 
                 function CP:SetValue(c) value = c; Preview.BackgroundColor3 = c end
@@ -1250,6 +1363,336 @@ function PubHubUI:Notify(opts)
         task.wait(0.15)
         pcall(function() Frame:Destroy() end)
     end)
+end
+
+-- ═══ CONFIG PERSISTENCE ═══
+local CONFIG_FILE = "pubhub_ui_config.json"
+
+local function saveConfig(cfg)
+    pcall(function()
+        if writefile then
+            -- Сериализуем Color3 в {r,g,b}
+            local out = {}
+            for k, v in pairs(cfg) do
+                if typeof(v) == "Color3" then
+                    out[k] = { __c = true, r = v.R, g = v.G, b = v.B }
+                elseif typeof(v) == "EnumItem" then
+                    out[k] = { __e = true, name = v.Name }
+                else
+                    out[k] = v
+                end
+            end
+            writefile(CONFIG_FILE, HttpService:JSONEncode(out))
+        end
+    end)
+end
+
+local function loadConfig()
+    local ok, raw = pcall(function()
+        if readfile and isfile and isfile(CONFIG_FILE) then
+            return readfile(CONFIG_FILE)
+        end
+    end)
+    if not ok or not raw then return {} end
+    local ok2, data = pcall(function() return HttpService:JSONDecode(raw) end)
+    if not ok2 or type(data) ~= "table" then return {} end
+    local out = {}
+    for k, v in pairs(data) do
+        if type(v) == "table" and v.__c then
+            out[k] = Color3.new(v.r, v.g, v.b)
+        elseif type(v) == "table" and v.__e then
+            pcall(function() out[k] = Enum.KeyCode[v.name] end)
+        else
+            out[k] = v
+        end
+    end
+    return out
+end
+
+-- Сохранённые настройки (загружаются при старте)
+local SavedConfig = loadConfig()
+
+-- Дефолтная тема (для ResetTheme)
+local DefaultTheme = {}
+for k, v in pairs(Theme) do DefaultTheme[k] = v end
+
+function PubHubUI:ResetTheme()
+    for k in pairs(Theme) do Theme[k] = nil end
+    for k, v in pairs(DefaultTheme) do Theme[k] = v end
+    for _, r in ipairs(ThemeRegistry) do
+        if r.inst and r.inst.Parent then
+            pcall(function() r.inst[r.prop] = Theme[r.key] end)
+        end
+    end
+end
+
+function PubHubUI:SaveConfig() saveConfig(SavedConfig) end
+function PubHubUI:LoadConfig() SavedConfig = loadConfig(); return SavedConfig end
+function PubHubUI:GetConfig() return SavedConfig end
+
+-- ═══ HEX <-> Color3 ═══
+local function colorToHex(c)
+    return string.format("#%02X%02X%02X",
+        math.floor(c.R * 255 + 0.5),
+        math.floor(c.G * 255 + 0.5),
+        math.floor(c.B * 255 + 0.5))
+end
+
+local function hexToColor(hex)
+    hex = hex:gsub("#", "")
+    if #hex ~= 6 then return nil end
+    local r = tonumber(hex:sub(1, 2), 16)
+    local g = tonumber(hex:sub(3, 4), 16)
+    local b = tonumber(hex:sub(5, 6), 16)
+    if not r or not g or not b then return nil end
+    return Color3.fromRGB(r, g, b)
+end
+
+-- ═══ Gui Tab builder — вызывается из main-скрипта ═══
+-- Создаёт вкладку "Gui" со всеми настройками интерфейса
+function PubHubUI:BuildGuiTab(Window)
+    local GuiTab = Window:AddTab("Gui", "settings")
+
+    -- Ссылки для авто-обновления
+    Window._guiState = Window._guiState or {}
+    local State = Window._guiState
+    State.HideOnMinimized = SavedConfig.HideOnMinimized or false
+    State.StartMinimized = SavedConfig.StartMinimized or false
+    State.CompactMinimized = SavedConfig.CompactMinimized or false
+    State.KeybindList = SavedConfig.KeybindList or false
+    State.ToggleKey = SavedConfig.ToggleKey or Enum.KeyCode.RightShift
+    State.Media = SavedConfig.Media or "None"
+    State.MediaOpacity = SavedConfig.MediaOpacity or 45
+    State.MediaURL = SavedConfig.MediaURL or ""
+    State.NotifPosition = SavedConfig.NotifPosition or "Right Bottom"
+
+    -- ═══ LEFT COLUMN ═══
+
+    -- ─── Card: Interface ───
+    local Iface = GuiTab:AddCard("Interface", "left")
+
+    Iface:AddToggle({
+        Text = "Hide on minimized",
+        Default = State.HideOnMinimized,
+        Callback = function(v)
+            State.HideOnMinimized = v
+            SavedConfig.HideOnMinimized = v
+            saveConfig(SavedConfig)
+        end,
+    })
+
+    Iface:AddToggle({
+        Text = "Start minimized",
+        Default = State.StartMinimized,
+        Callback = function(v)
+            State.StartMinimized = v
+            SavedConfig.StartMinimized = v
+            saveConfig(SavedConfig)
+        end,
+    })
+
+    Iface:AddToggle({
+        Text = "Compact when minimized",
+        Default = State.CompactMinimized,
+        Callback = function(v)
+            State.CompactMinimized = v
+            SavedConfig.CompactMinimized = v
+            saveConfig(SavedConfig)
+        end,
+    })
+
+    Iface:AddToggle({
+        Text = "Keybind list",
+        Default = State.KeybindList,
+        Callback = function(v)
+            State.KeybindList = v
+            SavedConfig.KeybindList = v
+            saveConfig(SavedConfig)
+            -- TODO: toggle keybind list overlay
+        end,
+    })
+
+    Iface:AddKeybind({
+        Text = "Toggle key",
+        Default = State.ToggleKey,
+        Callback = function(k)
+            State.ToggleKey = k
+            SavedConfig.ToggleKey = k
+            Window:SetKeybind(k)
+            saveConfig(SavedConfig)
+        end,
+    })
+
+    -- ─── Card: Background ───
+    local Bg = GuiTab:AddCard("Background", "left")
+
+    Bg:AddDropdown({
+        Text = "Media",
+        Values = { "None", "Image", "Video" },
+        Default = State.Media,
+        Callback = function(v)
+            State.Media = v
+            SavedConfig.Media = v
+            saveConfig(SavedConfig)
+        end,
+    })
+
+    Bg:AddSlider({
+        Text = "Media Opacity",
+        Min = 0, Max = 100, Default = State.MediaOpacity,
+        Callback = function(v)
+            State.MediaOpacity = v
+            SavedConfig.MediaOpacity = v
+            saveConfig(SavedConfig)
+            -- Apply transparency к main frame
+            local target = v / 100
+            if Window.Frame then
+                Window.Frame.BackgroundTransparency = target * 0.9
+            end
+        end,
+    })
+
+    Bg:AddInput({
+        Text = "Media URL",
+        Placeholder = "https://... or rbxassetid://",
+        Default = State.MediaURL,
+        Callback = function(v)
+            State.MediaURL = v
+            SavedConfig.MediaURL = v
+            saveConfig(SavedConfig)
+        end,
+    })
+
+    Bg:AddInput({
+        Text = "Save as",
+        Placeholder = "Name for the file",
+        Callback = function(v)
+            State.MediaSaveAs = v
+        end,
+    })
+
+    Bg:AddButton({
+        Text = "Download and use",
+        Callback = function()
+            if State.MediaURL == "" then
+                PubHubUI:Notify({ Title = "Background", Text = "Enter a URL first", Type = "warning" })
+                return
+            end
+            PubHubUI:Notify({ Title = "Background", Text = "Downloading...", Type = "info" })
+            task.spawn(function()
+                local ok, data = pcall(function() return game:HttpGet(State.MediaURL) end)
+                if ok and data then
+                    local fname = (State.MediaSaveAs or "bg") .. ".png"
+                    pcall(function() writefile(fname, data) end)
+                    PubHubUI:Notify({ Title = "Background", Text = "Saved as " .. fname, Type = "success" })
+                else
+                    PubHubUI:Notify({ Title = "Background", Text = "Download failed", Type = "error" })
+                end
+            end)
+        end,
+    })
+
+    Bg:AddButton({
+        Text = "Refresh list",
+        Callback = function()
+            PubHubUI:Notify({ Title = "Background", Text = "Refreshed", Type = "info" })
+        end,
+    })
+
+    Bg:AddButton({
+        Text = "Delete Background",
+        Callback = function()
+            State.MediaURL = ""
+            SavedConfig.MediaURL = ""
+            saveConfig(SavedConfig)
+            if Window.Frame then Window.Frame.BackgroundTransparency = 0 end
+            PubHubUI:Notify({ Title = "Background", Text = "Cleared", Type = "info" })
+        end,
+    })
+
+    -- ═══ RIGHT COLUMN ═══
+
+    -- ─── Card: Notifications ───
+    local Notif = GuiTab:AddCard("Notifications", "right")
+
+    Notif:AddDropdown({
+        Text = "Position",
+        Values = { "Right Bottom", "Right Top", "Left Bottom", "Left Top", "Top Center" },
+        Default = State.NotifPosition,
+        Callback = function(v)
+            State.NotifPosition = v
+            SavedConfig.NotifPosition = v
+            saveConfig(SavedConfig)
+        end,
+    })
+
+    Notif:AddButton({
+        Text = "Preview",
+        Callback = function()
+            PubHubUI:Notify({ Title = "Preview", Text = "This is a test notification", Type = "info" })
+        end,
+    })
+
+    Notif:AddButton({
+        Text = "Preview (Content)",
+        Callback = function()
+            PubHubUI:Notify({
+                Title = "Preview",
+                Text = "This is a longer notification with more content to show how text wraps and the notification looks with real content inside it.",
+                Type = "success",
+                Duration = 5,
+            })
+        end,
+    })
+
+    -- ─── Card: Appearance ───
+    local App = GuiTab:AddCard("Appearance", "right")
+
+    local function makeColorRow(label, themeKey)
+        App:AddColorPicker({
+            Text = label,
+            Default = Theme[themeKey],
+            Callback = function(c)
+                Theme[themeKey] = c
+                SavedConfig[themeKey] = c
+                PubHubUI:SetTheme({ [themeKey] = c })
+                saveConfig(SavedConfig)
+            end,
+        })
+    end
+
+    makeColorRow("Main color", "MainColor")
+    makeColorRow("Secondary", "SecondaryColor")
+    makeColorRow("Accent", "AccentColor")
+    makeColorRow("Stroke", "StrokeColor")
+    makeColorRow("Text", "TextColor")
+    makeColorRow("Subtext", "SubtextColor")
+
+    App:AddSlider({
+        Text = "Module transparency",
+        Min = 0, Max = 100, Default = math.floor((Theme.ModuleTransparency or 0) * 100),
+        Callback = function(v)
+            local t = v / 100
+            Theme.ModuleTransparency = t
+            SavedConfig.ModuleTransparency = t
+            saveConfig(SavedConfig)
+        end,
+    })
+
+    App:AddButton({
+        Text = "Restore default theme",
+        Callback = function()
+            PubHubUI:ResetTheme()
+            -- Чистим saved colors
+            for _, k in ipairs({"MainColor","SecondaryColor","AccentColor","StrokeColor","TextColor","SubtextColor","ModuleTransparency"}) do
+                SavedConfig[k] = nil
+            end
+            saveConfig(SavedConfig)
+            PubHubUI:Notify({ Title = "Theme", Text = "Default theme restored", Type = "success" })
+        end,
+    })
+
+    return GuiTab
 end
 
 return PubHubUI
