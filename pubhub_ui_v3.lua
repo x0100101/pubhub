@@ -891,6 +891,14 @@ function PubHubUI:CreateWindow(opts)
                 Cur.MouseButton1Click:Connect(function()
                     open = not open
                     if open then
+                        -- Поднимаем ZIndex всей карточки чтобы dropdown был поверх следующих
+                        local function raiseZ(inst, delta)
+                            for _, d in ipairs(inst:GetDescendants()) do
+                                if d:IsA("GuiObject") then d.ZIndex = d.ZIndex + delta end
+                            end
+                            if inst:IsA("GuiObject") then inst.ZIndex = inst.ZIndex + delta end
+                        end
+                        pcall(function() raiseZ(Card, 200) end)
                         OptFrame.Visible = true
                         local h = math.min(#values * 25 + 6, 160)
                         tween(OptFrame, Theme.TweenFast, { Size = UDim2.new(1, -8, 0, h) })
@@ -900,7 +908,17 @@ function PubHubUI:CreateWindow(opts)
                         tween(OptFrame, Theme.TweenFast, { Size = UDim2.new(1, -8, 0, 0) })
                         tween(Arrow, Theme.TweenFast, { Rotation = 0 })
                         regColor(cs, "Color", "StrokeColor")
-                        task.delay(0.14, function() OptFrame.Visible = false end)
+                        task.delay(0.14, function()
+                            OptFrame.Visible = false
+                            -- Возвращаем ZIndex
+                            local function lowerZ(inst, delta)
+                                for _, d in ipairs(inst:GetDescendants()) do
+                                    if d:IsA("GuiObject") then d.ZIndex = math.max(1, d.ZIndex - delta) end
+                                end
+                                if inst:IsA("GuiObject") then inst.ZIndex = math.max(1, inst.ZIndex - delta) end
+                            end
+                            pcall(function() lowerZ(Card, 200) end)
+                        end)
                     end
                 end)
 
