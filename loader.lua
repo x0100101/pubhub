@@ -652,16 +652,14 @@ local function proceedToMain()
     print("[PubHub] loadstring OK, executing...")
     Notify("PubHub запускается...", true)
 
-    -- Исполняем в task.spawn чтобы не блокировать
-    task.spawn(function()
-        local ok, runerr = pcall(fn)
-        if not ok then
-            warn("[PubHub] Payload runtime error: " .. tostring(runerr))
-            Notify("Runtime: " .. tostring(runerr):sub(1, 100), false)
-        else
-            print("[PubHub] Payload executed successfully")
-        end
-    end)
+    -- Исполняем напрямую (НЕ task.spawn — Real теряет context в spawn)
+    local ok, runerr = pcall(fn)
+    if not ok then
+        warn("[PubHub] Payload runtime error: " .. tostring(runerr))
+        Notify("Runtime: " .. tostring(runerr):sub(1, 100), false)
+    else
+        print("[PubHub] Payload executed successfully")
+    end
 end
 
 -- Buttons
