@@ -254,17 +254,24 @@ def payload():
         return jsonify({"error": "unauthorized"}), 403
     try:
         import os
-        # main.lua лежит рядом с api/index.py (Vercel static files на верхнем уровне)
-        path = os.path.join(os.path.dirname(__file__), "..", "main.lua")
-        with open(path, "rb") as f:
-            payload_bytes = f.read()
+        # Bundle: core.lua + main.lua (оба с Vercel, не GitHub)
+        base = os.path.dirname(__file__)
+        core_path = os.path.join(base, "..", "core.lua")
+        main_path = os.path.join(base, "..", "main.lua")
+        with open(core_path, "rb") as f:
+            core_bytes = f.read()
+        with open(main_path, "rb") as f:
+            main_bytes = f.read()
+        # Объединяем: core сначала, потом main (main делает loadstring(core))
+        bundle = core_bytes + b"\n" + main_bytes
         # XOR encrypt с session key (HMAC от hwid+key+timestamp)
         session_key = hashlib.sha256(f"{hwid}|{key}|{now()//3600}".encode()).digest()
-        encrypted = bytes(b ^ session_key[i % len(session_key)] for i, b in enumerate(payload_bytes))
+        encrypted = bytes(b ^ session_key[i % len(session_key)] for i, b in enumerate(bundle))
         return jsonify({
             "data": encrypted.hex(),
             "k": session_key.hex(),
             "ts": now(),
+            "core_size": len(core_bytes),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
