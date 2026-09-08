@@ -3,7 +3,24 @@
 -- Этот файл = то, что юзер вставляет через loadstring(game:HttpGet(...))
 
 local PUBHUB_API = "https://pubhub-ruddy.vercel.app"  -- Vercel serverless backend
-local MAIN_PAYLOAD_URL = "https://raw.githubusercontent.com/x0100101/pubhub/main/main.lua"  -- obfuscated cheat
+local MAIN_PAYLOAD_URL = PUBHUB_API .. "/payload"  -- encrypted payload endpoint
+
+-- XOR decrypt helper
+local function xorDecrypt(hexData, hexKey)
+    local data = {}
+    for i = 1, #hexData, 2 do
+        data[#data + 1] = tonumber(hexData:sub(i, i + 1), 16)
+    end
+    local key = {}
+    for i = 1, #hexKey, 2 do
+        key[#key + 1] = tonumber(hexKey:sub(i, i + 1), 16)
+    end
+    local out = {}
+    for i = 1, #data do
+        out[i] = string.char(bit32.bxor(data[i], key[(i - 1) % #key + 1]))
+    end
+    return table.concat(out)
+end
 
 -- ─── SERVICE ───────────────────────────────────────────────────────────────
 local cloneref = cloneref or clonereference or function(x) return x end
@@ -393,17 +410,25 @@ do
                     return
                 end
             end
-            -- Fetch & run main напрямую (без KeyGui)
-            local payload = httpget(MAIN_PAYLOAD_URL)
-            if payload and #payload > 100 then
-                local fn, err = loadstring(payload)
-                if fn then
-                    Notify("Welcome back! " .. math.floor((data.remaining or 0)/3600) .. "h left", true)
-                    print("[PubHub] auto-login: executing payload")
-                    local ok2, runerr = pcall(fn)
-                    if not ok2 then warn("[PubHub] auto-login runtime error: " .. tostring(runerr)) end
+            -- Fetch encrypted payload from backend
+            local payloadUrl = string.format("%s?key=%s&hw=%s", MAIN_PAYLOAD_URL,
+                HttpService:UrlEncode(saved), HttpService:UrlEncode(HWID))
+            local body = httpget(payloadUrl)
+            if body then
+                local data2 = safejson(body)
+                if data2 and data2.data and data2.k then
+                    local src = xorDecrypt(data2.data, data2.k)
+                    local fn, err = loadstring(src)
+                    if fn then
+                        Notify("Welcome back! " .. math.floor((data.remaining or 0)/3600) .. "h left", true)
+                        print("[PubHub] auto-login: executing payload")
+                        local ok2, runerr = pcall(fn)
+                        if not ok2 then warn("[PubHub] auto-login runtime error: " .. tostring(runerr)) end
+                    else
+                        warn("[PubHub] Payload load error: " .. tostring(err))
+                    end
                 else
-                    warn("[PubHub] Payload load error: " .. tostring(err))
+                    warn("[PubHub] Bad payload response")
                 end
             else
                 warn("[PubHub] Failed to fetch main payload")
@@ -705,21 +730,30 @@ local function proceedToMain()
     pcall(function() KeyGui:Destroy() end)
     pcall(function() SplashGui:Destroy() end)
 
-    -- Fetch main payload через общий httpget (fallback-обёртку)
+    -- Fetch encrypted payload from backend
     print("[PubHub] fetching main payload...")
-    local payload = httpget(MAIN_PAYLOAD_URL)
-    if not payload or #payload < 100 then
-        warn("[PubHub] Failed to fetch main payload, size: " .. tostring(payload and #payload or 0))
-        Notify("Ошибка загрузки main.lua", false)
+    local payloadUrl = string.format("%s?key=%s&hw=%s", MAIN_PAYLOAD_URL,
+        HttpService:UrlEncode(KeyInput.Text), HttpService:UrlEncode(HWID))
+    local body = httpget(payloadUrl)
+    if not body then
+        warn("[PubHub] Failed to fetch payload")
+        Notify("Ошибка загрузки", false)
         return
     end
-    print("[PubHub] payload size:", #payload)
+    local data2 = safejson(body)
+    if not data2 or not data2.data or not data2.k then
+        warn("[PubHub] Bad payload response")
+        Notify("Ошибка загрузки", false)
+        return
+    end
+    print("[PubHub] payload encrypted, decrypting...")
+    local src = xorDecrypt(data2.data, data2.k)
+    print("[PubHub] payload size:", #src)
 
-    -- Payload уже обфусцированный самодостаточный скрипт — просто исполняем
-    local fn, err = loadstring(payload)
+    local fn, err = loadstring(src)
     if not fn then
         warn("[PubHub] Payload loadstring error: " .. tostring(err))
-        Notify("Payload load error: " .. tostring(err):sub(1, 100), false)
+        Notify("Load error: " .. tostring(err):sub(1, 100), false)
         return
     end
     print("[PubHub] loadstring OK, executing...")
