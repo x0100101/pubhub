@@ -50,8 +50,12 @@ end)
 
 -- ─── PARENT ────────────────────────────────────────────────────────────────
 local function gethui()
-    local ok, r = pcall(function() return gethui() end)
-    if ok and r then return r end
+    -- gethui — глобальная функция executor'а (Synapse/Solara/Wave). Сохраняем её ДО того как перекрываем имя.
+    local genv = (getgenv and getgenv()) or _G
+    if type(genv.gethui) == "function" then
+        local ok, r = pcall(genv.gethui)
+        if ok and r then return r end
+    end
     local ok2, cg = pcall(function() return cloneref(game:GetService("CoreGui")) end)
     if ok2 and cg then return cg end
     return lp:WaitForChild("PlayerGui")
@@ -234,6 +238,7 @@ task.spawn(function()
 end)
 
 task.wait(1.8)
+print("[PubHub] Splash done, opening key window...")
 
 -- ─── KEY GUI ───────────────────────────────────────────────────────────────
 local KeyGui = Instance.new("ScreenGui")
