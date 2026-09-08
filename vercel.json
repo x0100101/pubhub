@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/index.py", "use": "@vercel/python" }
+  ],
+  "routes": [
+    { "src": "/loader.lua", "dest": "/loader.lua" },
+    { "src": "/main.lua", "dest": "/main.lua" },
+    { "src": "/(.*)", "dest": "/api/index.py" }
+  ]
+}
