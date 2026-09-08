@@ -418,7 +418,13 @@ do
                 local data2 = safejson(body)
                 if data2 and data2.data and data2.k then
                     local src = xorDecrypt(data2.data, data2.k)
-                    local fn, err = loadstring(src)
+                    -- Split bundle: core + main
+                    local coreSize = data2.core_size or 0
+                    local coreSrc = src:sub(1, coreSize)
+                    local mainSrc = src:sub(coreSize + 2)
+                    local coreFn = loadstring(coreSrc)
+                    if coreFn then pcall(coreFn) end
+                    local fn, err = loadstring(mainSrc)
                     if fn then
                         Notify("Welcome back! " .. math.floor((data.remaining or 0)/3600) .. "h left", true)
                         print("[PubHub] auto-login: executing payload")
@@ -750,7 +756,15 @@ local function proceedToMain()
     local src = xorDecrypt(data2.data, data2.k)
     print("[PubHub] payload size:", #src)
 
-    local fn, err = loadstring(src)
+    -- Split bundle: core + main
+    local coreSize = data2.core_size or 0
+    local coreSrc = src:sub(1, coreSize)
+    local mainSrc = src:sub(coreSize + 2)
+    print("[PubHub] core:", #coreSrc, "main:", #mainSrc)
+    local coreFn = loadstring(coreSrc)
+    if coreFn then pcall(coreFn) end
+
+    local fn, err = loadstring(mainSrc)
     if not fn then
         warn("[PubHub] Payload loadstring error: " .. tostring(err))
         Notify("Load error: " .. tostring(err):sub(1, 100), false)
