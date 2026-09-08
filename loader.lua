@@ -334,7 +334,9 @@ do
                 local fn, err = loadstring(payload)
                 if fn then
                     Notify("Welcome back! " .. math.floor((data.remaining or 0)/3600) .. "h left", true)
-                    pcall(fn)
+                    print("[PubHub] auto-login: executing payload")
+                    local ok2, runerr = pcall(fn)
+                    if not ok2 then warn("[PubHub] auto-login runtime error: " .. tostring(runerr)) end
                 else
                     warn("[PubHub] Payload load error: " .. tostring(err))
                 end
