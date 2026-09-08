@@ -557,7 +557,9 @@ def feedback():
 
 # ─── ADMIN ─────────────────────────────────────────────────────────────────
 def require_admin():
-    if request.headers.get("X-Admin") != ADMIN_TOKEN: abort(403)
+    # Принимаем токен либо в header X-Admin, либо в query ?token=
+    tok = request.headers.get("X-Admin") or request.args.get("token")
+    if tok != ADMIN_TOKEN: abort(403)
 
 @app.route("/admin/stats")
 def admin_stats():
