@@ -222,7 +222,7 @@ def postback():
     click_id = (request.args.get("click_id") or "").strip()[:128]
     user_ip = (request.args.get("ip") or "").strip()[:45]
     unique_id = (request.args.get("unique_id") or "").strip()[:64]
-    if not click_id or not unique_id:
+    if not click_id:
         return "MISSING", 400
 
     raw = redis_get(f"tok:{click_id}")
@@ -231,11 +231,17 @@ def postback():
     except Exception: return "CORRUPT", 500
     if tdata.get("used"): return "USED", 200  # уже выдали ключ, но 200 чтобы Lootlabs не ретраил
 
-    # Защита от дублей одного task
-    if redis_sismember(f"pb:{click_id}", unique_id):
-        return "DUPLICATE", 200
-    redis_sadd(f"pb:{click_id}", unique_id)
-    redis_expire(f"pb:{click_id}", TOKEN_TTL)
+    # Дедупликация: если unique_id есть — по нему; иначе rate-guard 1 postback / 5s на токен
+    if unique_id:
+        if redis_sismember(f"pb:{click_id}", unique_id):
+            return "DUPLICATE", 200
+        redis_sadd(f"pb:{click_id}", unique_id)
+        redis_expire(f"pb:{click_id}", TOKEN_TTL)
+    else:
+        # SET NX EX 5 — атомарный guard от ретраев
+        guard = redis_call("SET", f"pbg:{click_id}", "1", "NX", "EX", "5")
+        if not guard:
+            return "DUPLICATE", 200
 
     tdata["completed_tasks"] = tdata.get("completed_tasks", 0) + 1
     tdata["user_ip"] = user_ip
