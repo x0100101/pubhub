@@ -139,6 +139,24 @@ local function gethui()
     return lp:WaitForChild("PlayerGui")
 end
 
+-- ═══ HEX <-> Color3 (должны быть ДО использования) ═══
+local function colorToHex(c)
+    return string.format("#%02X%02X%02X",
+        math.floor(c.R * 255 + 0.5),
+        math.floor(c.G * 255 + 0.5),
+        math.floor(c.B * 255 + 0.5))
+end
+
+local function hexToColor(hex)
+    hex = hex:gsub("#", "")
+    if #hex ~= 6 then return nil end
+    local r = tonumber(hex:sub(1, 2), 16)
+    local g = tonumber(hex:sub(3, 4), 16)
+    local b = tonumber(hex:sub(5, 6), 16)
+    if not r or not g or not b then return nil end
+    return Color3.fromRGB(r, g, b)
+end
+
 -- Минималистичные иконки через текстовые глифы (без assetid — работают везде)
 local Glyphs = {
     star = "★", zap = "⚡", box = "▣", globe = "◍", home = "⌂",
@@ -1536,24 +1554,6 @@ end
 function PubHubUI:SaveConfig() saveConfig(SavedConfig) end
 function PubHubUI:LoadConfig() SavedConfig = loadConfig(); return SavedConfig end
 function PubHubUI:GetConfig() return SavedConfig end
-
--- ═══ HEX <-> Color3 ═══
-local function colorToHex(c)
-    return string.format("#%02X%02X%02X",
-        math.floor(c.R * 255 + 0.5),
-        math.floor(c.G * 255 + 0.5),
-        math.floor(c.B * 255 + 0.5))
-end
-
-local function hexToColor(hex)
-    hex = hex:gsub("#", "")
-    if #hex ~= 6 then return nil end
-    local r = tonumber(hex:sub(1, 2), 16)
-    local g = tonumber(hex:sub(3, 4), 16)
-    local b = tonumber(hex:sub(5, 6), 16)
-    if not r or not g or not b then return nil end
-    return Color3.fromRGB(r, g, b)
-end
 
 -- ═══ Gui Tab builder — вызывается из main-скрипта ═══
 -- Создаёт вкладку "Gui" со всеми настройками интерфейса
