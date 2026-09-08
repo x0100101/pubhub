@@ -850,23 +850,11 @@ function PubHubUI:CreateWindow(opts)
                 local chevL = mkChevron(45, -2)
                 local chevR = mkChevron(-45, 2)
                 -- Анимация через Rotation (мой Arrow-объект)
-                local Arrow = {
-                    _l = chevL, _r = chevR,
-                }
-                local arrowRot = 0
-                setmetatable(Arrow, {
-                    __index = function(_, k)
-                        if k == "Rotation" then return arrowRot end
-                    end,
-                    __newindex = function(_, k, v)
-                        if k == "Rotation" then
-                            arrowRot = v
-                            local open2 = v >= 90
-                            chevL.Rotation = open2 and -45 or 45
-                            chevR.Rotation = open2 and 45 or -45
-                        end
-                    end,
-                })
+                local Arrow = { _l = chevL, _r = chevR }
+                local function setArrowOpen(isOpen)
+                    tween(chevL, Theme.TweenFast, { Rotation = isOpen and -45 or 45 })
+                    tween(chevR, Theme.TweenFast, { Rotation = isOpen and 45 or -45 })
+                end
 
                 -- ═══ DROPDOWN LAYER (поверх всего) ═══
                 -- Создаём отдельный ScreenGui для dropdown-списка
@@ -923,7 +911,7 @@ function PubHubUI:CreateWindow(opts)
 
                 local function closeDD()
                     open = false
-                    tween(Arrow, Theme.TweenFast, { Rotation = 0 })
+                    setArrowOpen(false)
                     regColor(cs, "Color", "StrokeColor")
                     tween(DDFrame, Theme.TweenFast, { Size = UDim2.fromOffset(DDFrame.Size.X.Offset, 0) })
                     task.delay(0.12, function() DDLayer.Enabled = false end)
@@ -1006,7 +994,7 @@ function PubHubUI:CreateWindow(opts)
                         rebuild()
                         local targetH = positionDD()
                         DDLayer.Enabled = true
-                        tween(Arrow, Theme.TweenFast, { Rotation = 180 })
+                        setArrowOpen(true)
                         regColor(cs, "Color", "AccentColor")
                         tween(DDFrame, Theme.TweenFast, { Size = UDim2.fromOffset(Cur.AbsoluteSize.X, targetH) })
                     else
