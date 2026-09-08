@@ -622,32 +622,46 @@ local function getLootlabsLink(checkpoints)
 end
 
 local function proceedToMain()
+    print("[PubHub] proceedToMain start")
     -- Fade key gui out
     TweenService:Create(KeyFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quad), {
         Size = UDim2.fromOffset(0, 0),
         BackgroundTransparency = 1
     }):Play()
     task.wait(0.4)
-    KeyGui:Destroy()
-    SplashGui:Destroy()
+    pcall(function() KeyGui:Destroy() end)
+    pcall(function() SplashGui:Destroy() end)
 
     -- Fetch main payload через общий httpget (fallback-обёртку)
+    print("[PubHub] fetching main payload...")
     local payload = httpget(MAIN_PAYLOAD_URL)
     if not payload or #payload < 100 then
-        warn("[PubHub] Failed to fetch main payload")
+        warn("[PubHub] Failed to fetch main payload, size: " .. tostring(payload and #payload or 0))
+        Notify("Ошибка загрузки main.lua", false)
         return
     end
+    print("[PubHub] payload size:", #payload)
 
     -- Payload уже обфусцированный самодостаточный скрипт — просто исполняем
     local fn, err = loadstring(payload)
     if not fn then
-        warn("[PubHub] Payload load error: " .. tostring(err))
+        warn("[PubHub] Payload loadstring error: " .. tostring(err))
+        Notify("Payload load error: " .. tostring(err):sub(1, 100), false)
         return
     end
-    local ok, runerr = pcall(fn)
-    if not ok then
-        warn("[PubHub] Payload runtime error: " .. tostring(runerr))
-    end
+    print("[PubHub] loadstring OK, executing...")
+    Notify("PubHub запускается...", true)
+
+    -- Исполняем в task.spawn чтобы не блокировать
+    task.spawn(function()
+        local ok, runerr = pcall(fn)
+        if not ok then
+            warn("[PubHub] Payload runtime error: " .. tostring(runerr))
+            Notify("Runtime: " .. tostring(runerr):sub(1, 100), false)
+        else
+            print("[PubHub] Payload executed successfully")
+        end
+    end)
 end
 
 -- Buttons
@@ -659,6 +673,7 @@ MakeButton("Validate Key", 150, true, function()
     end
     if validateKey(k) then
         task.wait(0.5)
+        Notify("Загрузка PubHub...", true)
         proceedToMain()
     end
 end)
