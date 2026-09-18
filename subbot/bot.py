@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sqlite3
 from html import escape
 from aiogram import Bot, Dispatcher, F
@@ -378,8 +379,23 @@ async def _ingest_media(m: Message, keep_state: bool):
         await m.answer("Медиа добавлено в выдачу ✔", reply_markup=kb_admin())
 
 # ---------- run ----------
+async def _health_server():
+    """Tiny HTTP server to satisfy Render Web Service $PORT check."""
+    from aiohttp import web
+    async def ok(_):
+        return web.Response(text="ok")
+    app = web.Application()
+    app.router.add_get("/", ok)
+    app.router.add_get("/health", ok)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", "10000"))
+    await web.TCPSite(runner, "0.0.0.0", port).start()
+    print(f"health server on :{port}")
+
 async def main():
     db_init()
+    await _health_server()
     print("bot started")
     await dp.start_polling(bot)
 

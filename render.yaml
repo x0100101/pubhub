@@ -1,9 +1,10 @@
 services:
-  - type: worker
+  - type: web
     name: subbot
     runtime: python
     plan: free
     rootDir: subbot
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
+    healthCheckPath: /health
     autoDeploy: true
