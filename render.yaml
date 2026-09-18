@@ -1,0 +1,9 @@
+services:
+  - type: worker
+    name: subbot
+    runtime: python
+    plan: free
+    rootDir: subbot
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    autoDeploy: true
